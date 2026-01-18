@@ -1,5 +1,5 @@
 import streamlit as st
-from auth_system import init_database, verificar_login, listar_usuarios_ativos, alterar_senha, salvar_sessao, carregar_sessao, limpar_sessao
+from auth_system import init_database, verificar_login, listar_usuarios_ativos, alterar_senha
 
 def mostrar_tela_troca_senha():
     """Tela obrigatória de troca de senha no primeiro acesso"""
@@ -133,8 +133,7 @@ def mostrar_tela_login():
                     st.session_state.user_id = usuario['id']
                     st.session_state.precisa_trocar_senha = usuario['primeiro_acesso']
                     
-                    # PROBLEMA 1: Salvar sessão em arquivo
-                    salvar_sessao()
+                    # Sessão agora é APENAS no st.session_state (não compartilha entre usuários)
                     
                     st.success(f"✅ Bem-vindo(a), {usuario['nome']}!")
                     st.rerun()
@@ -147,22 +146,17 @@ def mostrar_tela_login():
 
 def verificar_autenticacao():
     """Verifica se usuário está autenticado"""
-    # PROBLEMA 1: Tentar carregar sessão salva
-    if not st.session_state.get('logged_in', False):
-        carregar_sessao()
-    
     if not st.session_state.get('logged_in', False):
         mostrar_tela_login()
         st.stop()
     
-    # PROBLEMA 2: Se precisa trocar senha, mostrar tela
+    # Se precisa trocar senha, mostrar tela
     if st.session_state.get('precisa_trocar_senha', False):
         mostrar_tela_troca_senha()
         st.stop()
 
 def fazer_logout():
     """Faz logout do usuário"""
-    limpar_sessao()  # PROBLEMA 1: Limpar arquivo de sessão
     st.session_state.logged_in = False
     st.session_state.usuario_logado = None
     st.session_state.is_admin = False
