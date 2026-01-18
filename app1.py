@@ -72,10 +72,18 @@ ADMIN_COLABORADORES = [
     "Leonardo goncalves fleury"
 ]
 
+# --- Inicializar banco PRIMEIRO ---
+# Criar banco se não existir (ANTES de tentar listar usuários)
+init_database()
+
 # --- Função para obter colaboradores do banco ---
 def get_colaboradores():
     """Retorna lista atualizada de colaboradores do banco de dados"""
-    return listar_usuarios_ativos()
+    try:
+        return listar_usuarios_ativos()
+    except:
+        # Se falhar, retornar lista vazia (banco ainda não existe)
+        return []
 
 # PROBLEMA 6: Lista dinâmica (atualiza quando novo usuário é criado)
 COLABORADORES = get_colaboradores()
@@ -1168,8 +1176,7 @@ def toggle_view(view_name):
 
 st.set_page_config(page_title="Controle Bastão Informática 2026", layout="wide", page_icon="🥂")
 # ==================== INICIALIZAÇÃO ====================
-# Inicializar banco de dados
-init_database()
+# Banco já foi inicializado no topo (antes de carregar COLABORADORES)
 
 # Inicializar sessão
 init_session_state()
