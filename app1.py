@@ -126,26 +126,47 @@ def load_state():
 
 
 def apply_modern_styles():
-    """Aplica design profissional moderno com suporte a dark mode"""
+    """Aplica design profissional moderno - FORÇAR LIGHT MODE"""
     st.markdown("""<style>
     /* Importar fonte moderna */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* ==================== FORÇAR LIGHT MODE ==================== */
+    /* FORÇA cores em TODOS os elementos */
+    
+    html, body, [data-testid="stAppViewContainer"], 
+    .main, .block-container, [class*="st-"] {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+    }
+    
+    /* FORÇAR textos pretos em TUDO */
+    p, span, div, label, h1, h2, h3, h4, h5, h6, 
+    .stMarkdown, .stText, .stCaption {
+        color: #0f172a !important;
+    }
+    
+    /* Labels específicos */
+    label {
+        color: #1e293b !important;
+        font-weight: 500 !important;
+    }
     
     /* Reset e Base */
     * {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
     
-    /* ==================== MODO CLARO ==================== */
+    /* Container principal */
     .main {
         background: #f1f5f9 !important;
         padding: 1.5rem !important;
     }
     
-    /* Container principal */
     .block-container {
         max-width: 1400px !important;
         padding: 1rem !important;
+        background: #f1f5f9 !important;
     }
     
     /* Remover header padrão Streamlit */
@@ -184,14 +205,23 @@ def apply_modern_styles():
         border-color: #1d4ed8 !important;
     }
     
-    /* Inputs */
+    /* Inputs - FORÇAR PRETO */
     .stSelectbox > div > div,
     .stTextInput > div > div,
-    .stTextArea > div > div {
+    .stTextArea > div > div,
+    input, select, textarea {
         border-radius: 10px !important;
         border: 1px solid #e2e8f0 !important;
         background: white !important;
+        color: #0f172a !important;
         font-size: 0.875rem !important;
+    }
+    
+    /* Placeholder visível */
+    input::placeholder, 
+    textarea::placeholder {
+        color: #94a3b8 !important;
+        opacity: 1 !important;
     }
     
     .stSelectbox > div > div:hover {
@@ -203,8 +233,8 @@ def apply_modern_styles():
         box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
     }
     
-    /* Headers */
-    h1, h2, h3 {
+    /* Headers - PRETO FORTE */
+    h1, h2, h3, h4, h5, h6 {
         color: #0f172a !important;
         font-weight: 600 !important;
     }
@@ -272,13 +302,28 @@ def apply_modern_styles():
         border-color: #cbd5e1 !important;
     }
     
-    /* Sidebar */
-    [data-testid="stSidebar"] {
+    /* Sidebar - FORÇAR LIGHT */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] * {
         background: white !important;
+        color: #0f172a !important;
+    }
+    
+    [data-testid="stSidebar"] {
         border-right: 1px solid #e2e8f0 !important;
     }
     
-    /* Métricas */
+    /* Sidebar headers */
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] div {
+        color: #0f172a !important;
+    }
+    
+    /* Métricas - PRETO FORTE */
     [data-testid="stMetricValue"] {
         font-size: 1.5rem !important;
         font-weight: 600 !important;
@@ -287,7 +332,8 @@ def apply_modern_styles():
     
     [data-testid="stMetricLabel"] {
         font-size: 0.875rem !important;
-        color: #64748b !important;
+        color: #475569 !important;
+    }
         font-weight: 500 !important;
     }
     
@@ -337,11 +383,36 @@ def apply_modern_styles():
     .dataframe tbody td {
         padding: 0.75rem !important;
         border-bottom: 1px solid #f1f5f9 !important;
+        color: #0f172a !important;
     }
     
-    /* Checkbox */
+    /* Checkbox - FORÇAR VISÍVEL */
     .stCheckbox {
         font-size: 0.875rem !important;
+    }
+    
+    .stCheckbox label,
+    .stCheckbox span {
+        color: #0f172a !important;
+    }
+    
+    /* Caption - FORÇAR CINZA ESCURO */
+    .stCaption,
+    [data-testid="stCaptionContainer"] {
+        color: #475569 !important;
+        font-style: normal !important;
+    }
+    
+    /* FORÇAR em elementos do Streamlit */
+    [class*="st-"] {
+        color: #0f172a !important;
+    }
+    
+    /* Texto em colunas */
+    [data-testid="column"] p,
+    [data-testid="column"] span,
+    [data-testid="column"] div {
+        color: #0f172a !important;
     }
     
     /* Remover elementos desnecessários */
