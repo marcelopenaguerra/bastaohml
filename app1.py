@@ -335,8 +335,62 @@ def apply_modern_styles():
     [data-testid="stMetricLabel"] {
         font-size: 0.875rem !important;
         color: #475569 !important;
-    }
         font-weight: 500 !important;
+    }
+    
+    /* ==================== CHECKBOX MAIS VISÍVEL (MacBook) ==================== */
+    /* Aumentar tamanho e contraste do checkbox */
+    div[data-testid="stCheckbox"] {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        padding: 0.5rem !important;
+        min-height: 40px !important;
+    }
+    
+    div[data-testid="stCheckbox"] > label {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        cursor: pointer !important;
+    }
+    
+    /* Aumentar tamanho do checkbox */
+    div[data-testid="stCheckbox"] input[type="checkbox"] {
+        width: 20px !important;
+        height: 20px !important;
+        min-width: 20px !important;
+        min-height: 20px !important;
+        cursor: pointer !important;
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        border: 2px solid #cbd5e1 !important;
+        border-radius: 4px !important;
+        background: white !important;
+        position: relative !important;
+    }
+    
+    /* Checkbox marcado */
+    div[data-testid="stCheckbox"] input[type="checkbox"]:checked {
+        background: #2563eb !important;
+        border-color: #2563eb !important;
+    }
+    
+    /* Checkmark visível */
+    div[data-testid="stCheckbox"] input[type="checkbox"]:checked::after {
+        content: "✓" !important;
+        position: absolute !important;
+        color: white !important;
+        font-size: 14px !important;
+        font-weight: bold !important;
+        left: 3px !important;
+        top: -1px !important;
+    }
+    
+    /* Hover effect */
+    div[data-testid="stCheckbox"] input[type="checkbox"]:hover {
+        border-color: #94a3b8 !important;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
     }
     
     /* Scrollbar */
@@ -1255,27 +1309,29 @@ if proximo_index != -1:
         checked_count += 1
 
 with col_principal:
-    # ========== USUÁRIO NO CANTO SUPERIOR ESQUERDO ==========
-    col_user_card, col_spacer = st.columns([0.4, 0.6])
+    # ========== USUÁRIO NO CANTO SUPERIOR DIREITO ==========
+    col_spacer, col_user_card = st.columns([0.65, 0.35])
     
     with col_user_card:
+        # Card compacto e elegante
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                    padding: 1rem 1.25rem; 
-                    border-radius: 10px; 
-                    margin-bottom: 1.5rem;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
-            <div style='color: white; font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;'>
+                    padding: 0.75rem 1rem; 
+                    border-radius: 8px; 
+                    margin-bottom: 1rem;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+                    text-align: right;'>
+            <div style='color: white; font-size: 0.95rem; font-weight: 600; margin-bottom: 0.15rem;'>
                 {st.session_state.usuario_logado}
             </div>
-            <div style='color: rgba(255,255,255,0.85); font-size: 0.85rem;'>
+            <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem;'>
                 {'👑 Administrador' if st.session_state.is_admin else '👤 Colaborador'}
             </div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Botão Sair logo abaixo
-        if st.button("🚪 Sair", help="Fazer Logout", use_container_width=True, type="secondary"):
+        # Botão Sair limpo e pequeno
+        if st.button("Sair", help="Fazer Logout", use_container_width=True, key="btn_logout_top"):
             # CRÍTICO: Marcar como Ausente ANTES de fazer logout
             usuario_atual = st.session_state.usuario_logado
             if usuario_atual:
@@ -2127,7 +2183,8 @@ with col_disponibilidade:
             st.caption(f'Ninguém em {title.lower()}.')
         else:
             for nome in sorted(names):
-                col_nome, col_check = st.columns([0.75, 0.25], vertical_alignment="center")
+                # Proporção 70/30 para dar mais espaço ao checkbox
+                col_nome, col_check = st.columns([0.70, 0.30], vertical_alignment="center")
                 key_dummy = f'chk_simples_{title}_{nome}'
                 
                 col_nome.markdown(f'**{nome}**')
@@ -2139,7 +2196,7 @@ with col_disponibilidade:
                         saida_time = datetime.fromisoformat(saida_time)
                     col_nome.caption(f"🕐 Saiu: {saida_time.strftime('%H:%M')}")
                 
-                # Checkbox com mais espaço
+                # Checkbox - estilos globais aplicados via CSS
                 col_check.checkbox('', key=key_dummy, 
                                  value=(False if title == 'Indisponível' else True),
                                  on_change=(enter_from_indisponivel if title == 'Indisponível' 
