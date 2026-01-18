@@ -5,9 +5,10 @@ from pathlib import Path
 import pickle
 import os
 
-# Caminho do banco de dados
-DB_PATH = Path("bastao_users.db")
-SESSION_FILE = Path("session_data.pkl")
+# Caminho absoluto para evitar erro no Streamlit Cloud
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = Path(os.path.join(BASE_DIR, "bastao_users.db"))
+SESSION_FILE = Path(os.path.join(BASE_DIR, "session_data.pkl"))
 
 def hash_password(password):
     """Hash de senha com SHA-256"""
