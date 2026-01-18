@@ -49,6 +49,15 @@ st.markdown("""
 
 # Arquivo de persistência
 STATE_FILE = Path("bastao_state.json")
+ADMIN_FILE = Path("admin_data.json")
+
+# --- ADMINISTRADORES ---
+# Usuários com permissão para cadastrar colaboradores e demandas
+ADMIN_USERS = {
+    "admin1": "senha123",  # Trocar senhas em produção
+    "admin2": "senha456",
+    "admin3": "senha789"
+}
 
 # --- Constantes de Colaboradores ---
 COLABORADORES = sorted([
@@ -95,11 +104,45 @@ def save_state():
             'bastao_counts': st.session_state.bastao_counts,
             'simon_ranking': st.session_state.simon_ranking,
             'daily_logs': st.session_state.daily_logs,
-            'checks': {nome: st.session_state.get(f'check_{nome}', False) for nome in COLABORADORES}
+            'checks': {nome: st.session_state.get(f'check_{nome}', False) for nome in COLABORADORES},
+            'almoco_times': {k: v.isoformat() if isinstance(v, datetime) else v for k, v in st.session_state.get('almoco_times', {}).items()},
+            'demanda_start_times': {k: v.isoformat() if isinstance(v, datetime) else v for k, v in st.session_state.get('demanda_start_times', {}).items()},
+            'demanda_logs': st.session_state.get('demanda_logs', [])
         }
         STATE_FILE.write_text(json.dumps(data, default=str, ensure_ascii=False, indent=2))
     except:
         pass
+
+def save_admin_data():
+    """Salva dados administrativos (colaboradores e demandas)"""
+    try:
+        data = {
+            'colaboradores_extras': st.session_state.get('colaboradores_extras', []),
+            'demandas_publicas': st.session_state.get('demandas_publicas', []),
+            'almoco_times': st.session_state.get('almoco_times', {}),
+            'demanda_logs': st.session_state.get('demanda_logs', [])
+        }
+        ADMIN_FILE.write_text(json.dumps(data, default=str, ensure_ascii=False, indent=2))
+    except:
+        pass
+
+def load_admin_data():
+    """Carrega dados administrativos"""
+    try:
+        if ADMIN_FILE.exists():
+            data = json.loads(ADMIN_FILE.read_text())
+            st.session_state.colaboradores_extras = data.get('colaboradores_extras', [])
+            st.session_state.demandas_publicas = data.get('demandas_publicas', [])
+            st.session_state.almoco_times = data.get('almoco_times', {})
+            st.session_state.demanda_logs = data.get('demanda_logs', [])
+            return True
+    except:
+        pass
+    return False
+
+def check_admin_auth():
+    """Verifica se usuário está autenticado como admin"""
+    return st.session_state.get('is_admin', False)
 
 def load_state():
     """Carrega estado do JSON"""
@@ -115,6 +158,15 @@ def load_state():
             st.session_state.bastao_counts = data.get('bastao_counts', {nome: 0 for nome in COLABORADORES})
             st.session_state.simon_ranking = data.get('simon_ranking', [])
             st.session_state.daily_logs = data.get('daily_logs', [])
+            
+            # Carregar novos campos
+            almoco_data = data.get('almoco_times', {})
+            st.session_state.almoco_times = {k: datetime.fromisoformat(v) if isinstance(v, str) else v for k, v in almoco_data.items()}
+            
+            demanda_times = data.get('demanda_start_times', {})
+            st.session_state.demanda_start_times = {k: datetime.fromisoformat(v) if isinstance(v, str) else v for k, v in demanda_times.items()}
+            
+            st.session_state.demanda_logs = data.get('demanda_logs', [])
             
             for nome, val in data.get('checks', {}).items():
                 st.session_state[f'check_{nome}'] = val
@@ -463,10 +515,18 @@ def init_session_state():
         'daily_logs': [],
         'success_message': None,
         'success_message_time': None,
+        # Admin fields
+        'is_admin': False,
+        'colaboradores_extras': [],
+        'demandas_publicas': [],
+        'almoco_times': {},
+        'demanda_logs': [],
+        'demanda_start_times': {}
     }
     
     # Tentar carregar estado salvo
     loaded = load_state()
+    load_admin_data()  # Carregar dados administrativos
     
     # Inicializar TODOS os campos (mesmo que tenha carregado do JSON)
     for key, default in defaults.items():
@@ -608,6 +668,15 @@ def update_status(new_status_part, force_exit_queue=False):
     blocking_statuses = ['Almoço', 'Ausente', 'Saída rápida']
     should_exit_queue = new_status_part in blocking_statuses or force_exit_queue
     
+    # Registrar horário de almoço
+    if new_status_part == 'Almoço':
+        st.session_state.almoco_times[selected] = datetime.now()
+    
+    # Registrar início de demanda/atividade
+    if 'Atividade:' in new_status_part or force_exit_queue:
+        if selected not in st.session_state.demanda_start_times:
+            st.session_state.demanda_start_times[selected] = datetime.now()
+    
     if should_exit_queue:
         final_status = new_status_part
         st.session_state[f'check_{selected}'] = False
@@ -657,6 +726,75 @@ def enter_from_indisponivel(colaborador):
     st.session_state.status_texto[colaborador] = ''
     check_and_assume_baton()
     save_state()  # SALVAR ESTADO
+
+def finalizar_demanda(colaborador):
+    """Finaliza demanda e retorna colaborador para fila"""
+    # Registrar fim da demanda
+    if colaborador in st.session_state.demanda_start_times:
+        start_time = st.session_state.demanda_start_times[colaborador]
+        end_time = datetime.now()
+        duration = end_time - start_time
+        
+        # Pegar atividade
+        atividade_texto = st.session_state.status_texto.get(colaborador, '')
+        
+        # Salvar log
+        log_entry = {
+            'tipo': 'demanda',
+            'colaborador': colaborador,
+            'atividade': atividade_texto,
+            'inicio': start_time.isoformat(),
+            'fim': end_time.isoformat(),
+            'duracao_minutos': duration.total_seconds() / 60,
+            'timestamp': datetime.now()
+        }
+        st.session_state.demanda_logs.append(log_entry)
+        st.session_state.daily_logs.append(log_entry)
+        
+        # Limpar tempo de início
+        del st.session_state.demanda_start_times[colaborador]
+    
+    # Limpar status
+    st.session_state.status_texto[colaborador] = ''
+    
+    # Voltar para fila
+    if colaborador not in st.session_state.bastao_queue:
+        st.session_state.bastao_queue.append(colaborador)
+        st.session_state[f'check_{colaborador}'] = True
+    
+    save_state()
+    st.success(f"✅ {colaborador} finalizou a demanda e voltou para a fila!")
+    time.sleep(1)
+    st.rerun()
+
+def check_almoco_timeout():
+    """Verifica se alguém está há mais de 1h no almoço e retorna automaticamente"""
+    now = datetime.now()
+    almoco_times = st.session_state.get('almoco_times', {})
+    
+    for nome in list(almoco_times.keys()):
+        saida_time = almoco_times[nome]
+        if isinstance(saida_time, str):
+            saida_time = datetime.fromisoformat(saida_time)
+        
+        elapsed_hours = (now - saida_time).total_seconds() / 3600
+        
+        if elapsed_hours >= 1.0:  # 1 hora
+            # Remover do almoço
+            if st.session_state.status_texto.get(nome) == 'Almoço':
+                st.session_state.status_texto[nome] = ''
+            
+            # Voltar para fila
+            if nome not in st.session_state.bastao_queue:
+                st.session_state.bastao_queue.append(nome)
+                st.session_state[f'check_{nome}'] = True
+            
+            # Limpar registro
+            del st.session_state.almoco_times[nome]
+            save_state()
+            
+            st.info(f"⏰ {nome} retornou automaticamente do almoço após 1 hora.")
+            st.rerun()
 
 
 def gerar_html_relatorio(logs_filtrados):
@@ -1075,6 +1213,9 @@ st.markdown("---")
 # Auto-refresh
 st_autorefresh(interval=8000, key='auto_rerun_key')
 
+# Verificar timeout de almoço (1 hora)
+check_almoco_timeout()
+
 # Layout principal
 col_principal, col_disponibilidade = st.columns([1.5, 1])
 queue = st.session_state.bastao_queue
@@ -1359,9 +1500,31 @@ with col_principal:
             with col_a1:
                 if st.button("Confirmar Atividade", type="primary", use_container_width=True):
                     if atividade_desc:
+                        colaborador = st.session_state.colaborador_selectbox
+                        
+                        # Verificar se tem o bastão
+                        tem_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador, '')
+                        
+                        # Registrar início da demanda
+                        st.session_state.demanda_start_times[colaborador] = datetime.now()
+                        
+                        # Atualizar status (remove da fila)
                         status_final = f"Atividade: {atividade_desc}"
-                        update_status(status_final, force_exit_queue=True)  # SAIR DA FILA
+                        update_status(status_final, force_exit_queue=True)
+                        
+                        # Se tinha bastão, passa automaticamente
+                        if tem_bastao:
+                            # Limpar bastão do status
+                            st.session_state.status_texto[colaborador] = status_final
+                            # Passar para próximo
+                            check_and_assume_baton()
+                            st.success(f"✅ {colaborador} entrou em atividade e o bastão foi passado automaticamente!")
+                        else:
+                            st.success(f"✅ {colaborador} entrou em atividade!")
+                        
                         st.session_state.active_view = None
+                        save_state()
+                        time.sleep(1)
                         st.rerun()
                     else:
                         st.warning("Digite a descrição da atividade.")
