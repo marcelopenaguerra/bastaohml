@@ -1674,22 +1674,21 @@ with col_principal:
     st.markdown("---")
     
     # Ferramentas
-    st.markdown("### 🛠️ Ferramentas")
+    st.markdown("### Ferramentas")
     
-    col1, col2, espacador, col3, col4 = st.columns([1, 1, 0.3, 1, 1])
-    
-    col1.button("📝 Atendimento", help="Registrar Atendimento", use_container_width=True, on_click=toggle_view, args=("atendimentos",))
-    col2.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
-    
-    # Espaçador vazio
-    
-    # PROBLEMA 5: Botão Relatórios só para admins
+    # Admins têm mais um botão
     if st.session_state.is_admin:
-        col3.button("Relatórios", help="Ver Registros Salvos (Apenas Admins)", use_container_width=True, on_click=toggle_view, args=("relatorios",))
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.button("Atendimento", help="Registrar Atendimento", use_container_width=True, on_click=toggle_view, args=("atendimentos",))
+        col2.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
+        col3.button("Relatórios", help="Ver Registros Salvos", use_container_width=True, on_click=toggle_view, args=("relatorios",))
+        col4.button("Admin", help="Painel Administrativo", use_container_width=True, on_click=toggle_view, args=("admin_panel",), type="primary")
+        col5.button("Descanso", help="Jogo e Ranking", use_container_width=True, on_click=toggle_view, args=("descanso",))
     else:
-        col3.markdown("")  # Espaço vazio
-    
-    col4.button("Descanso", help="Jogo e Ranking", use_container_width=True, on_click=toggle_view, args=("descanso",))
+        col1, col2, col3 = st.columns(3)
+        col1.button("Atendimento", help="Registrar Atendimento", use_container_width=True, on_click=toggle_view, args=("atendimentos",))
+        col2.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
+        col3.button("Descanso", help="Jogo e Ranking", use_container_width=True, on_click=toggle_view, args=("descanso",))
     
     # Views das ferramentas
     if st.session_state.active_view == "atendimentos":
@@ -1906,6 +1905,152 @@ with col_principal:
                         st.info("💡 Dica: Após baixar, clique duas vezes no arquivo .html para abrir no navegador")
     
     # ==================== PAINEL ADMIN BD ====================
+    # ==================== PAINEL ADMIN ====================
+    elif st.session_state.active_view == "admin_panel":
+        if not st.session_state.is_admin:
+            st.error("❌ Acesso negado! Apenas administradores.")
+        else:
+            with st.container(border=True):
+                st.markdown("### Painel Administrativo")
+                st.caption(f"Admin: {st.session_state.usuario_logado}")
+                
+                tab1, tab2, tab3 = st.tabs(["Cadastrar Colaborador", "Gerenciar Demandas", "Banco de Dados"])
+                
+                # TAB 1: Cadastrar Colaborador
+                with tab1:
+                    st.markdown("#### Adicionar Novo Colaborador")
+                    novo_nome = st.text_input("Nome completo:", key="admin_novo_colab")
+                    nova_senha = st.text_input("Senha inicial:", type="password", value="user123", key="admin_nova_senha")
+                    is_admin_novo = st.checkbox("É administrador?", key="admin_is_admin")
+                    
+                    if st.button("Adicionar Colaborador", key="btn_add_colab", type="primary"):
+                        if novo_nome:
+                            from auth_system import adicionar_usuario
+                            sucesso = adicionar_usuario(novo_nome, nova_senha, is_admin_novo)
+                            if sucesso:
+                                # Inicializar estados
+                                st.session_state.status_texto[novo_nome] = 'Indisponível'
+                                st.session_state.bastao_counts[novo_nome] = 0
+                                st.session_state[f'check_{novo_nome}'] = False
+                                save_state()
+                                st.success(f"✅ {novo_nome} cadastrado com sucesso!")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("❌ Colaborador já existe no banco de dados!")
+                        else:
+                            st.warning("⚠️ Digite o nome completo!")
+                
+                # TAB 2: Gerenciar Demandas
+                with tab2:
+                    st.markdown("#### Publicar Nova Demanda")
+                    nova_demanda_texto = st.text_area("Descrição da demanda:", height=100, key="admin_nova_demanda")
+                    
+                    col_p1, col_p2 = st.columns(2)
+                    
+                    with col_p1:
+                        prioridade = st.select_slider("Prioridade:", 
+                                                     options=["Baixa", "Média", "Alta", "Urgente"],
+                                                     value="Média",
+                                                     key="admin_prioridade")
+                    
+                    with col_p2:
+                        setor = st.selectbox("Setor:",
+                                            options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
+                                            key="admin_setor")
+                    
+                    # Direcionar para colaborador específico
+                    direcionar = st.checkbox("Direcionar para colaborador específico?", key="admin_direcionar")
+                    
+                    colaborador_direcionado = None
+                    if direcionar:
+                        colaboradores_disponiveis = [c for c in COLABORADORES 
+                                                    if c in st.session_state.bastao_queue]
+                        
+                        if colaboradores_disponiveis:
+                            colaborador_direcionado = st.selectbox(
+                                "Selecione o colaborador:",
+                                options=colaboradores_disponiveis,
+                                key="admin_colab_direcionado"
+                            )
+                            st.info(f"A demanda será direcionada para {colaborador_direcionado}")
+                        else:
+                            st.warning("Nenhum colaborador disponível na fila.")
+                            direcionar = False
+                    
+                    if st.button("Publicar Demanda", key="btn_pub_demanda", type="primary"):
+                        if nova_demanda_texto:
+                            if 'demandas_publicas' not in st.session_state:
+                                st.session_state.demandas_publicas = []
+                            
+                            demanda_obj = {
+                                'id': len(st.session_state.demandas_publicas) + 1,
+                                'texto': nova_demanda_texto,
+                                'prioridade': prioridade,
+                                'setor': setor,
+                                'criado_em': now_brasilia().isoformat(),
+                                'criado_por': st.session_state.usuario_logado,
+                                'ativa': True,
+                                'direcionada_para': colaborador_direcionado if direcionar else None
+                            }
+                            st.session_state.demandas_publicas.append(demanda_obj)
+                            save_admin_data()
+                            
+                            # Se direcionada, atribuir automaticamente
+                            if colaborador_direcionado:
+                                atividade_desc = f"[{setor}] {nova_demanda_texto[:100]}"
+                                st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
+                                st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
+                                
+                                if colaborador_direcionado in st.session_state.bastao_queue:
+                                    st.session_state.bastao_queue.remove(colaborador_direcionado)
+                                st.session_state[f'check_{colaborador_direcionado}'] = False
+                                
+                                if 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, ''):
+                                    check_and_assume_baton()
+                                
+                                save_state()
+                                st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
+                            else:
+                                st.success("✅ Demanda publicada!")
+                            
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.warning("Digite a descrição da demanda!")
+                    
+                    # Listar demandas ativas
+                    st.markdown("---")
+                    st.markdown("#### Demandas Ativas")
+                    if st.session_state.get('demandas_publicas', []):
+                        for dem in st.session_state.demandas_publicas:
+                            if dem.get('ativa', True):
+                                col1, col2 = st.columns([0.9, 0.1])
+                                
+                                setor_tag = dem.get('setor', 'Geral')
+                                direcionado = dem.get('direcionada_para')
+                                
+                                texto_exibicao = f"[{setor_tag}] {dem['texto'][:50]}..."
+                                if direcionado:
+                                    texto_exibicao = f"→ {direcionado}: " + texto_exibicao
+                                
+                                col1.write(f"**{dem['id']}.** {texto_exibicao}")
+                                
+                                if col2.button("✕", key=f"del_dem_{dem['id']}"):
+                                    dem['ativa'] = False
+                                    save_admin_data()
+                                    st.rerun()
+                    else:
+                        st.info("Nenhuma demanda ativa no momento.")
+                
+                # TAB 3: Banco de Dados
+                with tab3:
+                    st.markdown("#### Gerenciar Banco de Dados")
+                    if st.button("Abrir Painel de BD", use_container_width=True):
+                        st.session_state.active_view = 'admin_bd'
+                        st.rerun()
+    
+    # ==================== PAINEL ADMIN BD ====================
     elif st.session_state.active_view == "admin_bd":
         mostrar_painel_admin_bd()
 
@@ -1913,151 +2058,6 @@ with col_principal:
 with col_disponibilidade:
     st.markdown("###")
     st.header('Status dos(as) Colaboradores(as)')
-    
-    # ========== PAINEL ADMIN ==========
-    if check_admin_auth():
-        st.markdown("---")
-        st.markdown("### Painel Admin")
-        st.caption(f"Admin: {st.session_state.usuario_logado}")
-        
-        # Cadastrar Novo Colaborador
-        with st.expander("▸ Cadastrar Colaborador", expanded=False):
-            novo_nome = st.text_input("Nome completo:", key="admin_novo_colab")
-            if st.button("Adicionar Colaborador", key="btn_add_colab"):
-                if novo_nome and novo_nome not in COLABORADORES:
-                    # Adicionar à lista de extras
-                    if 'colaboradores_extras' not in st.session_state:
-                        st.session_state.colaboradores_extras = []
-                    
-                    st.session_state.colaboradores_extras.append(novo_nome)
-                    
-                    # Inicializar estados
-                    st.session_state.status_texto[novo_nome] = 'Indisponível'
-                    st.session_state.bastao_counts[novo_nome] = 0
-                    st.session_state[f'check_{novo_nome}'] = False
-                    
-                    save_admin_data()
-                    st.success(f"✅ {novo_nome} cadastrado!")
-                    time.sleep(1)
-                    st.rerun()
-                elif novo_nome in COLABORADORES:
-                    st.warning("Colaborador já existe!")
-                else:
-                    st.warning("Digite o nome completo!")
-        
-        # Gerenciar Demandas Públicas
-        with st.expander("▸ Gerenciar Demandas", expanded=False):
-            nova_demanda_texto = st.text_area("Nova demanda:", height=100, key="admin_nova_demanda")
-            
-            col_p1, col_p2 = st.columns(2)
-            
-            with col_p1:
-                prioridade = st.select_slider("Prioridade:", 
-                                             options=["Baixa", "Média", "Alta", "Urgente"],
-                                             value="Média",
-                                             key="admin_prioridade")
-            
-            with col_p2:
-                setor = st.selectbox("Setor:",
-                                    options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
-                                    key="admin_setor")
-            
-            # Direcionar para colaborador específico
-            direcionar = st.checkbox("Direcionar para colaborador específico?", key="admin_direcionar")
-            
-            colaborador_direcionado = None
-            if direcionar:
-                colaboradores_disponiveis = [c for c in COLABORADORES 
-                                            if c in st.session_state.bastao_queue]
-                
-                if colaboradores_disponiveis:
-                    colaborador_direcionado = st.selectbox(
-                        "Selecione o colaborador:",
-                        options=colaboradores_disponiveis,
-                        key="admin_colab_direcionado"
-                    )
-                    st.info(f"📌 A demanda será direcionada para {colaborador_direcionado}")
-                else:
-                    st.warning("⚠️ Nenhum colaborador disponível na fila no momento.")
-                    direcionar = False
-            
-            if st.button("Publicar Demanda", key="btn_pub_demanda"):
-                if nova_demanda_texto:
-                    if 'demandas_publicas' not in st.session_state:
-                        st.session_state.demandas_publicas = []
-                    
-                    demanda_obj = {
-                        'id': len(st.session_state.demandas_publicas) + 1,
-                        'texto': nova_demanda_texto,
-                        'prioridade': prioridade,
-                        'setor': setor,
-                        'criado_em': now_brasilia().isoformat(),
-                        'criado_por': st.session_state.usuario_logado,
-                        'ativa': True,
-                        'direcionada_para': colaborador_direcionado if direcionar else None
-                    }
-                    st.session_state.demandas_publicas.append(demanda_obj)
-                    save_admin_data()
-                    
-                    # Se direcionada, já atribuir automaticamente
-                    if colaborador_direcionado:
-                        # Criar texto da atividade
-                        atividade_desc = f"[{setor}] {nova_demanda_texto[:100]}"
-                        
-                        # Registrar início
-                        st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
-                        
-                        # Atualizar status
-                        st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
-                        
-                        # Remover da fila
-                        if colaborador_direcionado in st.session_state.bastao_queue:
-                            st.session_state.bastao_queue.remove(colaborador_direcionado)
-                        st.session_state[f'check_{colaborador_direcionado}'] = False
-                        
-                        # Se tinha bastão, passar
-                        if 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, ''):
-                            check_and_assume_baton()
-                        
-                        save_state()
-                        st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
-                    else:
-                        st.success("✅ Demanda publicada!")
-                    
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.warning("Digite a demanda!")
-            
-            # Listar demandas ativas
-            if st.session_state.get('demandas_publicas', []):
-                st.markdown("**Demandas Ativas:**")
-                for dem in st.session_state.demandas_publicas:
-                    if dem.get('ativa', True):
-                        col1, col2 = st.columns([0.85, 0.15])
-                        
-                        # Mostrar setor antes do texto
-                        setor_tag = dem.get('setor', 'Geral')
-                        direcionado = dem.get('direcionada_para')
-                        
-                        texto_exibicao = f"[{setor_tag}] {dem['texto'][:35]}..."
-                        if direcionado:
-                            texto_exibicao = f"→ {direcionado}: " + texto_exibicao
-                        
-                        col1.caption(f"{dem['id']}. {texto_exibicao}")
-                        
-                        if col2.button("✕", key=f"del_dem_{dem['id']}"):
-                            dem['ativa'] = False
-                            save_admin_data()
-                            st.rerun()
-        
-        # Botão Gerenciar Banco de Dados
-        st.markdown("---")
-        if st.button("Gerenciar Banco de Dados", use_container_width=True, type="secondary"):
-            st.session_state.active_view = 'admin_bd'
-            st.rerun()
-        
-        st.markdown("---")
     
     # Listas de status
     import re
