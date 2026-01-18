@@ -1255,30 +1255,43 @@ if proximo_index != -1:
         checked_count += 1
 
 with col_principal:
-    # ========== CARD DO USUÁRIO NO TOPO ==========
-    st.markdown(f"""
-    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                padding: 1.5rem; 
-                border-radius: 12px; 
-                margin-bottom: 1.5rem;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;'>
-        <div>
-            <div style='color: white; font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem;'>
+    # ========== USUÁRIO NO CANTO SUPERIOR ESQUERDO ==========
+    col_user_card, col_spacer = st.columns([0.4, 0.6])
+    
+    with col_user_card:
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    padding: 1rem 1.25rem; 
+                    border-radius: 10px; 
+                    margin-bottom: 1.5rem;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+            <div style='color: white; font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;'>
                 {st.session_state.usuario_logado}
             </div>
-            <div style='color: rgba(255,255,255,0.9); font-size: 0.9rem;'>
+            <div style='color: rgba(255,255,255,0.85); font-size: 0.85rem;'>
                 {'👑 Administrador' if st.session_state.is_admin else '👤 Colaborador'}
             </div>
         </div>
-        <div style='color: rgba(255,255,255,0.8); font-size: 0.85rem; text-align: right;'>
-            <div>Setor de Informática</div>
-            <div>TJMG • 2026</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        
+        # Botão Sair logo abaixo
+        if st.button("🚪 Sair", help="Fazer Logout", use_container_width=True, type="secondary"):
+            # CRÍTICO: Marcar como Ausente ANTES de fazer logout
+            usuario_atual = st.session_state.usuario_logado
+            if usuario_atual:
+                # Remover da fila
+                if usuario_atual in st.session_state.bastao_queue:
+                    st.session_state.bastao_queue.remove(usuario_atual)
+                
+                # Marcar como Ausente
+                st.session_state.status_texto[usuario_atual] = 'Ausente'
+                st.session_state[f'check_{usuario_atual}'] = False
+                
+                # SALVAR ESTADO NO DISCO IMEDIATAMENTE
+                SharedState.sync_from_session_state()
+            
+            # Agora fazer logout
+            fazer_logout()
     
     if responsavel:
         # Barra sticky que fica fixa no topo ao rolar
@@ -1564,27 +1577,6 @@ with col_principal:
     st.markdown("")
     # ========== SIDEBAR - AÇÕES RÁPIDAS ==========
     st.markdown("### Ações Rápidas")
-    
-    # Botão de Logout no topo
-    if st.button("🚪 Sair", help="Fazer Logout", use_container_width=True, type="secondary"):
-        # CRÍTICO: Marcar como Ausente ANTES de fazer logout
-        usuario_atual = st.session_state.usuario_logado
-        if usuario_atual:
-            # Remover da fila
-            if usuario_atual in st.session_state.bastao_queue:
-                st.session_state.bastao_queue.remove(usuario_atual)
-            
-            # Marcar como Ausente
-            st.session_state.status_texto[usuario_atual] = 'Ausente'
-            st.session_state[f'check_{usuario_atual}'] = False
-            
-            # SALVAR ESTADO NO DISCO IMEDIATAMENTE
-            SharedState.sync_from_session_state()
-        
-        # Agora fazer logout
-        fazer_logout()
-    
-    st.markdown("---")
     
     # BOTÃO PASSAR REMOVIDO - Item 8: Ao entrar em atividade, passa automaticamente
     
@@ -2135,7 +2127,7 @@ with col_disponibilidade:
             st.caption(f'Ninguém em {title.lower()}.')
         else:
             for nome in sorted(names):
-                col_nome, col_check = st.columns([0.7, 0.3], vertical_alignment="center")
+                col_nome, col_check = st.columns([0.75, 0.25], vertical_alignment="center")
                 key_dummy = f'chk_simples_{title}_{nome}'
                 
                 col_nome.markdown(f'**{nome}**')
@@ -2147,11 +2139,13 @@ with col_disponibilidade:
                         saida_time = datetime.fromisoformat(saida_time)
                     col_nome.caption(f"🕐 Saiu: {saida_time.strftime('%H:%M')}")
                 
-                # Checkbox
-                if title == 'Indisponível':
-                    col_check.checkbox(' ', key=key_dummy, value=False, on_change=enter_from_indisponivel, args=(nome,), label_visibility='collapsed')
-                else:
-                    col_check.checkbox(' ', key=key_dummy, value=True, on_change=leave_specific_status, args=(nome, title), label_visibility='collapsed')
+                # Checkbox com mais espaço
+                col_check.checkbox('', key=key_dummy, 
+                                 value=(False if title == 'Indisponível' else True),
+                                 on_change=(enter_from_indisponivel if title == 'Indisponível' 
+                                          else leave_specific_status),
+                                 args=((nome,) if title == 'Indisponível' else (nome, title)),
+                                 label_visibility='collapsed')
         st.markdown('---')
     
     render_section_detalhada('Em Demanda', '📋', ui_lists['atividade_especifica'], 'orange', 'Atividade')
