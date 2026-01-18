@@ -72,25 +72,13 @@ ADMIN_COLABORADORES = [
     "Leonardo goncalves fleury"
 ]
 
-# --- Constantes de Colaboradores ---
-COLABORADORES = sorted([
-    "Frederico Augusto Costa Gonçalves",
-    "Ramon Shander de Almeida",
-    "Marcelo Batista Amaral",
-    "Rodrigo Marinho Marques", 
-    "Otávio Reis",
-    "Judson Heleno Faleiro",
-    "Roner Ribeiro Júnior",
-    "Warley Roberto de Oliveira Cruz",
-    "Marcio Rodrigues Alves",
-    "Igor Eduardo Martins",
-    "Leonardo goncalves fleury",
-    "Marcelo dos Santos Dutra",
-    "Daniely Cristina Cunha Mesquita",
-    "Celso Daniel Vilano Cardoso",
-    "Pollyanna Silva Pereira",
-    "Cinthia Mery Facion"
-])
+# --- Função para obter colaboradores do banco ---
+def get_colaboradores():
+    """Retorna lista atualizada de colaboradores do banco de dados"""
+    return listar_usuarios_ativos()
+
+# PROBLEMA 6: Lista dinâmica (atualiza quando novo usuário é criado)
+COLABORADORES = get_colaboradores()
 
 # --- Constantes de Opções ---
 REG_USUARIO_OPCOES = ["Cartório", "Externo"]
@@ -1192,6 +1180,16 @@ verificar_autenticacao()  # Se não logado, mostra tela de login e para
 
 # A partir daqui, usuário está autenticado
 # Usar st.session_state.usuario_logado e st.session_state.is_admin
+
+# PROBLEMA 7: Adicionar automaticamente na fila ao fazer login
+usuario_atual = st.session_state.usuario_logado
+if usuario_atual not in st.session_state.bastao_queue:
+    st.session_state.bastao_queue.append(usuario_atual)
+    st.session_state[f'check_{usuario_atual}'] = True
+    if st.session_state.status_texto.get(usuario_atual) == 'Indisponível':
+        st.session_state.status_texto[usuario_atual] = ''
+    save_state()
+
 st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
 
 # ==================== HEADER ====================
@@ -1626,7 +1624,12 @@ with col_principal:
     
     # Espaçador vazio
     
-    col3.button("📊 Relatórios", help="Ver Registros Salvos", use_container_width=True, on_click=toggle_view, args=("relatorios",))
+    # PROBLEMA 5: Botão Relatórios só para admins
+    if st.session_state.is_admin:
+        col3.button("📊 Relatórios", help="Ver Registros Salvos (Apenas Admins)", use_container_width=True, on_click=toggle_view, args=("relatorios",))
+    else:
+        col3.markdown("")  # Espaço vazio
+    
     col4.button("🧠 Descanso", help="Jogo e Ranking", use_container_width=True, on_click=toggle_view, args=("descanso",))
     
     # Views das ferramentas
@@ -2003,14 +2006,20 @@ with col_disponibilidade:
                 col_nome.markdown(f'**{nome}**', unsafe_allow_html=True)
                 col_nome.caption(desc)
                 
-                # Mostrar tempo decorrido
+                # PROBLEMA 4: Mostrar horário de início E tempo decorrido
                 if nome in st.session_state.get('demanda_start_times', {}):
                     start_time = st.session_state.demanda_start_times[nome]
                     if isinstance(start_time, str):
                         start_time = datetime.fromisoformat(start_time)
+                    
+                    # Horário de início
+                    horario_inicio = start_time.strftime('%H:%M')
+                    
+                    # Tempo decorrido
                     elapsed = now_brasilia() - start_time
                     elapsed_mins = int(elapsed.total_seconds() / 60)
-                    col_nome.caption(f"⏱️ {elapsed_mins} min")
+                    
+                    col_nome.caption(f"🕐 Início: {horario_inicio} | ⏱️ {elapsed_mins} min")
                 
                 # Botão Finalizar (ITEM 1)
                 if col_btn.button("✅", key=f"fim_{nome}_{title}", help="Finalizar"):
