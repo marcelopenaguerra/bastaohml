@@ -72,12 +72,14 @@ ADMIN_COLABORADORES = [
     "Leonardo goncalves fleury"
 ]
 
-# --- Função para obter colaboradores do banco ---
+# --- INICIALIZAÇÃO OBRIGATÓRIA DO BANCO ANTES DE TUDO ---
+init_database()
+
 def get_colaboradores():
     """Retorna lista atualizada de colaboradores do banco de dados"""
     return listar_usuarios_ativos()
 
-# PROBLEMA 6: Lista dinâmica (atualiza quando novo usuário é criado)
+# Agora a lista será carregada sem erro pois o banco já foi iniciado acima
 COLABORADORES = get_colaboradores()
 
 # --- Constantes de Opções ---
