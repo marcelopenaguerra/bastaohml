@@ -1603,6 +1603,16 @@ with col_principal:
     
     with col_logout:
         if st.button("🚪", help="Sair", use_container_width=True):
+            # Marcar como Ausente antes de fazer logout
+            usuario_atual = st.session_state.usuario_logado
+            if usuario_atual:
+                if usuario_atual in st.session_state.bastao_queue:
+                    st.session_state.bastao_queue.remove(usuario_atual)
+                st.session_state.status_texto[usuario_atual] = 'Ausente'
+                st.session_state[f'check_{usuario_atual}'] = False
+                save_state()
+            
+            # Fazer logout
             fazer_logout()
     
     st.markdown("**Ações:**")
