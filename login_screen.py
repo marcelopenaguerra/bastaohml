@@ -1,34 +1,5 @@
 import streamlit as st
-from auth_system import init_database, verificar_login, listar_usuarios_ativos, alterar_senha
-import secrets
-import hashlib
-
-def get_session_id():
-    """Gera ou recupera um ID único para esta sessão de navegador"""
-    # Tentar pegar da query string primeiro
-    query_params = st.query_params
-    
-    if 'session_id' in query_params:
-        return query_params['session_id']
-    
-    # Se não existe, criar novo
-    if 'session_id' not in st.session_state:
-        # Gerar ID único
-        st.session_state.session_id = secrets.token_urlsafe(32)
-    
-    # Salvar na URL
-    st.query_params['session_id'] = st.session_state.session_id
-    return st.session_state.session_id
-
-def save_session_to_cache(session_id, user_data):
-    """Salva dados da sessão no cache do Streamlit"""
-    cache_key = f"session_{session_id}"
-    st.session_state[cache_key] = user_data
-
-def load_session_from_cache(session_id):
-    """Carrega dados da sessão do cache"""
-    cache_key = f"session_{session_id}"
-    return st.session_state.get(cache_key, None)
+from auth_system import verificar_login, listar_usuarios_ativos, alterar_senha
 
 def mostrar_tela_troca_senha():
     """Tela obrigatória de troca de senha no primeiro acesso"""
@@ -59,48 +30,37 @@ def mostrar_tela_troca_senha():
                 if usuario:
                     alterar_senha(st.session_state.usuario_logado, nova_senha)
                     st.session_state.precisa_trocar_senha = False
-                    salvar_sessao()
                     st.success("✅ Senha alterada com sucesso!")
                     st.rerun()
                 else:
                     st.error("❌ Senha atual incorreta!")
 
 def mostrar_tela_login():
-    """Exibe tela de login"""
-    
-    # CSS da tela de login
+    """Tela de login principal"""
     st.markdown("""
     <style>
-        .login-container {
-            max-width: 400px;
-            margin: 100px auto;
-            padding: 2rem;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        
-        .login-title {
-            text-align: center;
-            color: #0f172a;
-            font-size: 1.5rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-        
-        .login-subtitle {
-            text-align: center;
-            color: #64748b;
-            font-size: 0.875rem;
-            margin-bottom: 2rem;
-        }
+    .login-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 16px;
+        text-align: center;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+    .login-title {
+        color: white;
+        font-size: 2rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+    .login-subtitle {
+        color: rgba(255,255,255,0.9);
+        font-size: 1rem;
+    }
     </style>
     """, unsafe_allow_html=True)
     
-    # Container centralizado
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
+    with st.container():
         st.markdown("""
         <div class="login-container">
             <div class="login-title">🥂 Controle de Bastão</div>
@@ -155,24 +115,12 @@ def mostrar_tela_login():
                 usuario = verificar_login(nome, senha)
                 
                 if usuario:
-                    # Login bem-sucedido
-                    session_id = get_session_id()
-                    
-                    # Dados da sessão
-                    user_data = {
-                        'logged_in': True,
-                        'usuario_logado': usuario['nome'],
-                        'is_admin': usuario['is_admin'],
-                        'user_id': usuario['id'],
-                        'precisa_trocar_senha': usuario['primeiro_acesso']
-                    }
-                    
-                    # Salvar no session_state
-                    for key, value in user_data.items():
-                        st.session_state[key] = value
-                    
-                    # Salvar no cache para persistir após refresh
-                    save_session_to_cache(session_id, user_data)
+                    # Login bem-sucedido - SIMPLES!
+                    st.session_state.logged_in = True
+                    st.session_state.usuario_logado = usuario['nome']
+                    st.session_state.is_admin = usuario['is_admin']
+                    st.session_state.user_id = usuario['id']
+                    st.session_state.precisa_trocar_senha = usuario['primeiro_acesso']
                     
                     st.success(f"✅ Bem-vindo(a), {usuario['nome']}!")
                     st.rerun()
@@ -184,17 +132,7 @@ def mostrar_tela_login():
         st.caption("🔒 Sistema seguro com autenticação de usuários")
 
 def verificar_autenticacao():
-    """Verifica se usuário está autenticado"""
-    # Tentar restaurar sessão do cache
-    if not st.session_state.get('logged_in', False):
-        session_id = get_session_id()
-        cached_data = load_session_from_cache(session_id)
-        
-        if cached_data:
-            # Restaurar dados da sessão
-            for key, value in cached_data.items():
-                st.session_state[key] = value
-    
+    """Verifica se usuário está autenticado - SIMPLES!"""
     if not st.session_state.get('logged_in', False):
         mostrar_tela_login()
         st.stop()
@@ -205,22 +143,11 @@ def verificar_autenticacao():
         st.stop()
 
 def fazer_logout():
-    """Faz logout do usuário (limpa apenas dados de sessão)"""
-    # Limpar sessão do cache
-    if 'session_id' in st.session_state:
-        session_id = st.session_state.session_id
-        cache_key = f"session_{session_id}"
-        if cache_key in st.session_state:
-            del st.session_state[cache_key]
-    
-    # Limpar dados de login
+    """Faz logout do usuário - SIMPLES!"""
+    # Limpar apenas dados de login
     st.session_state.logged_in = False
     st.session_state.usuario_logado = None
     st.session_state.is_admin = False
     st.session_state.user_id = None
     st.session_state.precisa_trocar_senha = False
-    
-    # Limpar query params
-    st.query_params.clear()
-    
     st.rerun()
