@@ -1,5 +1,5 @@
 import streamlit as st
-from auth_system import init_database, verificar_login
+from auth_system import init_database, verificar_login, listar_usuarios_ativos
 
 def mostrar_tela_login():
     """Exibe tela de login"""
