@@ -2,13 +2,53 @@ import sqlite3
 import hashlib
 import streamlit as st
 from pathlib import Path
+import pickle
+import os
 
 # Caminho do banco de dados
 DB_PATH = Path("bastao_users.db")
+SESSION_FILE = Path("session_data.pkl")
 
 def hash_password(password):
     """Hash de senha com SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
+
+def salvar_sessao():
+    """Salva dados da sessão em arquivo"""
+    try:
+        sessao = {
+            'logged_in': st.session_state.get('logged_in', False),
+            'usuario_logado': st.session_state.get('usuario_logado', None),
+            'is_admin': st.session_state.get('is_admin', False),
+            'user_id': st.session_state.get('user_id', None),
+            'precisa_trocar_senha': st.session_state.get('precisa_trocar_senha', False)
+        }
+        with open(SESSION_FILE, 'wb') as f:
+            pickle.dump(sessao, f)
+    except:
+        pass
+
+def carregar_sessao():
+    """Carrega dados da sessão do arquivo"""
+    try:
+        if SESSION_FILE.exists():
+            with open(SESSION_FILE, 'rb') as f:
+                sessao = pickle.load(f)
+                for key, value in sessao.items():
+                    if key not in st.session_state:
+                        st.session_state[key] = value
+                return True
+    except:
+        pass
+    return False
+
+def limpar_sessao():
+    """Remove arquivo de sessão"""
+    try:
+        if SESSION_FILE.exists():
+            os.remove(SESSION_FILE)
+    except:
+        pass
 
 def init_database():
     """Inicializa banco de dados de usuários"""
@@ -23,6 +63,7 @@ def init_database():
             senha_hash TEXT NOT NULL,
             is_admin INTEGER DEFAULT 0,
             ativo INTEGER DEFAULT 1,
+            primeiro_acesso INTEGER DEFAULT 1,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -42,11 +83,11 @@ def init_database():
         for nome, senha in admins:
             senha_hash = hash_password(senha)
             c.execute(
-                "INSERT INTO usuarios (nome, senha_hash, is_admin) VALUES (?, ?, 1)",
+                "INSERT INTO usuarios (nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, 1, 0)",
                 (nome, senha_hash)
             )
         
-        # Criar colaboradores regulares
+        # Criar colaboradores regulares - SENHA: user123
         colaboradores = [
             "Frederico Augusto Costa Gonçalves",
             "Ramon Shander de Almeida",
@@ -64,9 +105,9 @@ def init_database():
         ]
         
         for nome in colaboradores:
-            senha_hash = hash_password("senha123")  # Senha padrão inicial
+            senha_hash = hash_password("user123")  # PROBLEMA 2: Senha padrão user123
             c.execute(
-                "INSERT INTO usuarios (nome, senha_hash, is_admin) VALUES (?, ?, 0)",
+                "INSERT INTO usuarios (nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, 0, 1)",
                 (nome, senha_hash)
             )
     
@@ -80,7 +121,7 @@ def verificar_login(nome, senha):
     
     senha_hash = hash_password(senha)
     c.execute(
-        "SELECT id, nome, is_admin, ativo FROM usuarios WHERE nome = ? AND senha_hash = ?",
+        "SELECT id, nome, is_admin, ativo, primeiro_acesso FROM usuarios WHERE nome = ? AND senha_hash = ?",
         (nome, senha_hash)
     )
     
@@ -92,7 +133,8 @@ def verificar_login(nome, senha):
             'id': resultado[0],
             'nome': resultado[1],
             'is_admin': bool(resultado[2]),
-            'ativo': bool(resultado[3])
+            'ativo': bool(resultado[3]),
+            'primeiro_acesso': bool(resultado[4])  # PROBLEMA 2: Flag de primeiro acesso
         }
     return None
 
@@ -112,7 +154,7 @@ def adicionar_usuario(nome, senha, is_admin=False):
         c = conn.cursor()
         senha_hash = hash_password(senha)
         c.execute(
-            "INSERT INTO usuarios (nome, senha_hash, is_admin) VALUES (?, ?, ?)",
+            "INSERT INTO usuarios (nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, 1)",
             (nome, senha_hash, 1 if is_admin else 0)
         )
         conn.commit()
@@ -130,11 +172,14 @@ def remover_usuario(nome):
     conn.close()
 
 def alterar_senha(nome, senha_nova):
-    """Altera senha do usuário"""
+    """Altera senha do usuário e marca que não é mais primeiro acesso"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     senha_hash = hash_password(senha_nova)
-    c.execute("UPDATE usuarios SET senha_hash = ? WHERE nome = ?", (senha_hash, nome))
+    c.execute(
+        "UPDATE usuarios SET senha_hash = ?, primeiro_acesso = 0 WHERE nome = ?", 
+        (senha_hash, nome)
+    )
     conn.commit()
     conn.close()
 
