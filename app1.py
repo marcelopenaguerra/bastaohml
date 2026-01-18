@@ -755,13 +755,28 @@ def update_status(new_status_part, force_exit_queue=False):
     save_state()  # SALVAR ESTADO APÓS MUDANÇA
 
 def leave_specific_status(colaborador, status_type_to_remove):
+    """Remove um status específico e volta para fila se necessário"""
     old_status = st.session_state.status_texto.get(colaborador, '')
     parts = [p.strip() for p in old_status.split('|')]
     new_parts = [p for p in parts if status_type_to_remove not in p and p]
     new_status = " | ".join(new_parts)
-    if not new_status and colaborador not in st.session_state.bastao_queue:
-        new_status = 'Indisponível'
+    
+    # Se ficou sem status, marcar como vazio (não Indisponível, pois vai voltar pra fila)
+    if not new_status:
+        new_status = ''
+    
     st.session_state.status_texto[colaborador] = new_status
+    
+    # Se estava em Almoço/Saída/Ausente e saiu, VOLTAR PARA FILA
+    if status_type_to_remove in ['Almoço', 'Saída rápida', 'Ausente']:
+        if colaborador not in st.session_state.bastao_queue:
+            st.session_state.bastao_queue.append(colaborador)
+            st.session_state[f'check_{colaborador}'] = True
+        
+        # Limpar tempo de almoço se estava em almoço
+        if status_type_to_remove == 'Almoço' and colaborador in st.session_state.get('almoco_times', {}):
+            del st.session_state.almoco_times[colaborador]
+    
     check_and_assume_baton()
     save_state()  # SALVAR ESTADO
 
@@ -1199,8 +1214,18 @@ verificar_autenticacao()  # Se não logado, mostra tela de login e para
 # Usar st.session_state.usuario_logado e st.session_state.is_admin
 
 # PROBLEMA 7: Adicionar automaticamente na fila ao fazer login
+# MAS NÃO adicionar se está em status bloqueante (Almoço, Ausente, Saída, Atividade)
 usuario_atual = st.session_state.usuario_logado
-if usuario_atual not in st.session_state.bastao_queue:
+
+# Verificar se está em status bloqueante
+status_atual = st.session_state.status_texto.get(usuario_atual, '')
+statuses_bloqueantes = ['Almoço', 'Ausente', 'Saída rápida', 'Atividade:']
+esta_bloqueado = any(status in status_atual for status in statuses_bloqueantes)
+
+# Só adiciona na fila se:
+# 1. Não está na fila ainda
+# 2. NÃO está em status bloqueante
+if usuario_atual not in st.session_state.bastao_queue and not esta_bloqueado:
     st.session_state.bastao_queue.append(usuario_atual)
     st.session_state[f'check_{usuario_atual}'] = True
     if st.session_state.status_texto.get(usuario_atual) == 'Indisponível':
@@ -1574,7 +1599,7 @@ with col_principal:
     with col_user:
         st.subheader(f"{st.session_state.usuario_logado}**")
         if st.session_state.is_admin:
-            st.caption("👑 Administrador")
+            st.caption("Administrador")
     
     with col_logout:
         if st.button("🚪", help="Sair", use_container_width=True):
@@ -1896,7 +1921,7 @@ with col_disponibilidade:
         st.caption(f"Admin: {st.session_state.usuario_logado}")
         
         # Cadastrar Novo Colaborador
-        with st.expander("➕ Cadastrar Colaborador", expanded=False):
+        with st.expander("▸ Cadastrar Colaborador", expanded=False):
             novo_nome = st.text_input("Nome completo:", key="admin_novo_colab")
             if st.button("Adicionar Colaborador", key="btn_add_colab"):
                 if novo_nome and novo_nome not in COLABORADORES:
@@ -1921,7 +1946,7 @@ with col_disponibilidade:
                     st.warning("Digite o nome completo!")
         
         # Gerenciar Demandas Públicas
-        with st.expander("📋 Gerenciar Demandas", expanded=False):
+        with st.expander("▸ Gerenciar Demandas", expanded=False):
             nova_demanda_texto = st.text_area("Nova demanda:", height=100, key="admin_nova_demanda")
             
             col_p1, col_p2 = st.columns(2)
