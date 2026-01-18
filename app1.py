@@ -1255,6 +1255,31 @@ if proximo_index != -1:
         checked_count += 1
 
 with col_principal:
+    # ========== CARD DO USUÁRIO NO TOPO ==========
+    st.markdown(f"""
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                padding: 1.5rem; 
+                border-radius: 12px; 
+                margin-bottom: 1.5rem;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;'>
+        <div>
+            <div style='color: white; font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem;'>
+                {st.session_state.usuario_logado}
+            </div>
+            <div style='color: rgba(255,255,255,0.9); font-size: 0.9rem;'>
+                {'👑 Administrador' if st.session_state.is_admin else '👤 Colaborador'}
+            </div>
+        </div>
+        <div style='color: rgba(255,255,255,0.8); font-size: 0.85rem; text-align: right;'>
+            <div>Setor de Informática</div>
+            <div>TJMG • 2026</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
     if responsavel:
         # Barra sticky que fica fixa no topo ao rolar
         st.markdown(f"""
@@ -1537,35 +1562,29 @@ with col_principal:
         st.markdown("&nbsp;")
     
     st.markdown("")
+    # ========== SIDEBAR - AÇÕES RÁPIDAS ==========
+    st.markdown("### Ações Rápidas")
     
-    # Exibir usuário logado
-    col_user, col_logout = st.columns([3, 1])
-    
-    with col_user:
-        st.subheader(f"{st.session_state.usuario_logado}**")
-        if st.session_state.is_admin:
-            st.caption("Administrador")
-    
-    with col_logout:
-        if st.button("🚪", help="Sair", use_container_width=True):
-            # CRÍTICO: Marcar como Ausente ANTES de fazer logout
-            usuario_atual = st.session_state.usuario_logado
-            if usuario_atual:
-                # Remover da fila
-                if usuario_atual in st.session_state.bastao_queue:
-                    st.session_state.bastao_queue.remove(usuario_atual)
-                
-                # Marcar como Ausente
-                st.session_state.status_texto[usuario_atual] = 'Ausente'
-                st.session_state[f'check_{usuario_atual}'] = False
-                
-                # SALVAR ESTADO NO DISCO IMEDIATAMENTE
-                SharedState.sync_from_session_state()
+    # Botão de Logout no topo
+    if st.button("🚪 Sair", help="Fazer Logout", use_container_width=True, type="secondary"):
+        # CRÍTICO: Marcar como Ausente ANTES de fazer logout
+        usuario_atual = st.session_state.usuario_logado
+        if usuario_atual:
+            # Remover da fila
+            if usuario_atual in st.session_state.bastao_queue:
+                st.session_state.bastao_queue.remove(usuario_atual)
             
-            # Agora fazer logout
-            fazer_logout()
+            # Marcar como Ausente
+            st.session_state.status_texto[usuario_atual] = 'Ausente'
+            st.session_state[f'check_{usuario_atual}'] = False
+            
+            # SALVAR ESTADO NO DISCO IMEDIATAMENTE
+            SharedState.sync_from_session_state()
+        
+        # Agora fazer logout
+        fazer_logout()
     
-    st.markdown("**Ações:**")
+    st.markdown("---")
     
     # BOTÃO PASSAR REMOVIDO - Item 8: Ao entrar em atividade, passa automaticamente
     
