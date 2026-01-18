@@ -713,12 +713,26 @@ def update_status(new_status_part, force_exit_queue=False):
         if selected not in st.session_state.demanda_start_times:
             st.session_state.demanda_start_times[selected] = now_brasilia()
     
+    # CRÍTICO: Se deve sair da fila, remover IMEDIATAMENTE
     if should_exit_queue:
         final_status = new_status_part
+        
+        # FORÇAR remoção da fila
         st.session_state[f'check_{selected}'] = False
         if selected in st.session_state.bastao_queue:
             st.session_state.bastao_queue.remove(selected)
+        
+        # Verificar se tinha bastão
+        was_holder = 'Bastão' in st.session_state.status_texto.get(selected, '')
+        
+        # Atualizar status (sem bastão se estava saindo)
+        st.session_state.status_texto[selected] = final_status
+        
+        # Se tinha bastão, passar para próximo
+        if was_holder:
+            check_and_assume_baton()
     else:
+        # Apenas atualizar status sem sair da fila
         current = st.session_state.status_texto.get(selected, '')
         parts = [p.strip() for p in current.split('|') if p.strip()]
         type_of_new = new_status_part.split(':')[0]
@@ -730,17 +744,13 @@ def update_status(new_status_part, force_exit_queue=False):
         cleaned_parts.append(new_status_part)
         cleaned_parts.sort(key=lambda x: 0 if 'Bastão' in x else 1 if 'Atividade' in x else 2)
         final_status = " | ".join(cleaned_parts)
-    
-    was_holder = next((True for c, s in st.session_state.status_texto.items() if 'Bastão' in s and c == selected), False)
-    
-    if was_holder and not should_exit_queue:
-        if 'Bastão' not in final_status:
+        
+        was_holder = next((True for c, s in st.session_state.status_texto.items() if 'Bastão' in s and c == selected), False)
+        
+        if was_holder and 'Bastão' not in final_status:
             final_status = f"Bastão | {final_status}"
-    
-    st.session_state.status_texto[selected] = final_status
-    
-    if was_holder and should_exit_queue:
-        check_and_assume_baton()
+        
+        st.session_state.status_texto[selected] = final_status
     
     save_state()  # SALVAR ESTADO APÓS MUDANÇA
 
@@ -944,7 +954,7 @@ def gerar_html_relatorio(logs_filtrados):
     </head>
     <body>
         <div class="header">
-            <h1>📊 RELATÓRIO DE REGISTROS - Informática</h1>
+            <h1>RELATÓRIO DE REGISTROS - Informática</h1>
             <p>Sistema de Controle de Bastão</p>
             <p><strong>Gerado em:</strong> """ + now_brasilia().strftime("%d/%m/%Y às %H:%M:%S") + """</p>
             <p><strong>Total de registros:</strong> """ + str(len(logs_filtrados)) + """</p>
@@ -974,7 +984,7 @@ def gerar_html_relatorio(logs_filtrados):
         elif 'titulo' in log and 'relato' in log:
             tipo = "ERRO/NOVIDADE"
             classe_tipo = "tipo-erro"
-            icone = "🐛"
+            icone = "Bug:"
         else:
             tipo = "REGISTRO"
             classe_tipo = "tipo-atendimento"
@@ -991,7 +1001,7 @@ def gerar_html_relatorio(logs_filtrados):
                 <div class="campo-valor">{data_hora}</div>
             </div>
             <div class="campo">
-                <div class="campo-label">👤 Colaborador:</div>
+                <div class="campo-label">Colaborador:</div>
                 <div class="campo-valor">{colaborador}</div>
             </div>
         """
@@ -1000,7 +1010,7 @@ def gerar_html_relatorio(logs_filtrados):
         if 'usuario' in log:
             html += f"""
             <div class="campo">
-                <div class="campo-label">👥 Usuário:</div>
+                <div class="campo-label">Usuário:</div>
                 <div class="campo-valor">{log.get('usuario', 'N/A')}</div>
             </div>
             <div class="campo">
@@ -1432,7 +1442,7 @@ with col_principal:
             st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">
-                    🔄 Rodadas Hoje
+                    Rodadas Hoje
                 </div>
                 <div class="metric-value">
                     {rodadas}
@@ -1527,7 +1537,7 @@ with col_principal:
         </style>
         
         <div class="empty-card">
-            <div style="font-size: 2rem; margin-bottom: 0.5rem;">👥</div>
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">Usuários</div>
             <div class="empty-text">Nenhum colaborador com o bastão</div>
         </div>
         """, unsafe_allow_html=True)
@@ -1562,7 +1572,7 @@ with col_principal:
     col_user, col_logout = st.columns([3, 1])
     
     with col_user:
-        st.subheader(f"👤 **{st.session_state.usuario_logado}**")
+        st.subheader(f"{st.session_state.usuario_logado}**")
         if st.session_state.is_admin:
             st.caption("👑 Administrador")
     
@@ -1575,21 +1585,21 @@ with col_principal:
     # BOTÃO PASSAR REMOVIDO - Item 8: Ao entrar em atividade, passa automaticamente
     
     # Botão Atividades
-    st.button('📋 Atividades', on_click=toggle_view, args=('menu_atividades',), use_container_width=True, help='Marcar como Em Demanda')
+    st.button('Atividades', on_click=toggle_view, args=('menu_atividades',), use_container_width=True, help='Marcar como Em Demanda')
     
     st.markdown("")
     
     # Status: Almoço, Saída, Ausente
     row1_c1, row1_c2, row1_c3 = st.columns(3)
     
-    row1_c1.button('🍽️ Almoço', on_click=update_status, args=('Almoço', True,), use_container_width=True)
-    row1_c2.button('🚶 Saída', on_click=update_status, args=('Saída rápida', True,), use_container_width=True)
-    row1_c3.button('👤 Ausente', on_click=update_status, args=('Ausente', True,), use_container_width=True)
+    row1_c1.button('Almoço', on_click=update_status, args=('Almoço', True,), use_container_width=True)
+    row1_c2.button('Saída', on_click=update_status, args=('Saída rápida', True,), use_container_width=True)
+    row1_c3.button('Ausente', on_click=update_status, args=('Ausente', True,), use_container_width=True)
     
     st.markdown("")
     
     # Atualizar
-    if st.button('🔄 Atualizar', use_container_width=True):
+    if st.button('Atualizar', use_container_width=True):
         st.rerun()
     
     # Menu de Atividades
@@ -1644,17 +1654,17 @@ with col_principal:
     col1, col2, espacador, col3, col4 = st.columns([1, 1, 0.3, 1, 1])
     
     col1.button("📝 Atendimento", help="Registrar Atendimento", use_container_width=True, on_click=toggle_view, args=("atendimentos",))
-    col2.button("🐛 Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
+    col2.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
     
     # Espaçador vazio
     
     # PROBLEMA 5: Botão Relatórios só para admins
     if st.session_state.is_admin:
-        col3.button("📊 Relatórios", help="Ver Registros Salvos (Apenas Admins)", use_container_width=True, on_click=toggle_view, args=("relatorios",))
+        col3.button("Relatórios", help="Ver Registros Salvos (Apenas Admins)", use_container_width=True, on_click=toggle_view, args=("relatorios",))
     else:
         col3.markdown("")  # Espaço vazio
     
-    col4.button("🧠 Descanso", help="Jogo e Ranking", use_container_width=True, on_click=toggle_view, args=("descanso",))
+    col4.button("Descanso", help="Jogo e Ranking", use_container_width=True, on_click=toggle_view, args=("descanso",))
     
     # Views das ferramentas
     if st.session_state.active_view == "atendimentos":
@@ -1694,7 +1704,7 @@ with col_principal:
     
     elif st.session_state.active_view == "erro_novidade":
         with st.container(border=True):
-            st.markdown("### 🐛 Registro de Erro ou Novidade (Local)")
+            st.markdown("### Bug: Registro de Erro ou Novidade (Local)")
             en_titulo = st.text_input("Título:")
             en_objetivo = st.text_area("Objetivo:", height=100)
             en_relato = st.text_area("Relato:", height=200)
@@ -1785,9 +1795,9 @@ with col_principal:
                     if 'usuario' in log:
                         # Atendimento
                         with st.expander(f"📝 #{idx} - Atendimento - {colaborador} - {data_hora}"):
-                            st.markdown(f"**👤 Colaborador:** {colaborador}")
+                            st.markdown(f"**Colaborador:** {colaborador}")
                             st.markdown(f"**📅 Data:** {log.get('data', 'N/A')}")
-                            st.markdown(f"**👥 Usuário:** {log.get('usuario', 'N/A')}")
+                            st.markdown(f"**Usuário:** {log.get('usuario', 'N/A')}")
                             st.markdown(f"**🏢 Setor:** {log.get('setor', 'N/A')}")
                             st.markdown(f"**💻 Sistema:** {log.get('sistema', 'N/A')}")
                             st.markdown(f"**📝 Descrição:** {log.get('descricao', 'N/A')}")
@@ -1798,7 +1808,7 @@ with col_principal:
                         # Demanda Concluída (ITEM 7)
                         duracao_min = log.get('duracao_minutos', 0)
                         with st.expander(f"📋 #{idx} - Demanda - {colaborador} - {data_hora} ({duracao_min:.0f} min)"):
-                            st.markdown(f"**👤 Colaborador:** {colaborador}")
+                            st.markdown(f"**Colaborador:** {colaborador}")
                             st.markdown(f"**📝 Atividade:** {log.get('atividade', 'N/A')}")
                             
                             # Horários
@@ -1823,7 +1833,7 @@ with col_principal:
                     elif 'inicio' in log and 'tempo' in log:
                         # Horas Extras
                         with st.expander(f"⏰ #{idx} - Horas Extras - {colaborador} - {data_hora}"):
-                            st.markdown(f"**👤 Colaborador:** {colaborador}")
+                            st.markdown(f"**Colaborador:** {colaborador}")
                             st.markdown(f"**📅 Data:** {log.get('data', 'N/A')}")
                             st.markdown(f"**🕐 Início:** {log.get('inicio', 'N/A')}")
                             st.markdown(f"**⏱️ Tempo Total:** {log.get('tempo', 'N/A')}")
@@ -1831,7 +1841,7 @@ with col_principal:
                     
                     elif 'titulo' in log and 'relato' in log:
                         # Erro/Novidade
-                        with st.expander(f"🐛 #{idx} - Erro/Novidade - {colaborador} - {data_hora}"):
+                        with st.expander(f"Bug: #{idx} - Erro/Novidade - {colaborador} - {data_hora}"):
                             st.markdown(f"**👤 Autor:** {colaborador}")
                             st.markdown(f"**📌 Título:** {log.get('titulo', 'N/A')}")
                             st.markdown(f"**🎯 Objetivo:**")
@@ -1886,7 +1896,7 @@ with col_disponibilidade:
         st.caption(f"Admin: {st.session_state.usuario_logado}")
         
         # Cadastrar Novo Colaborador
-        with st.expander("Cadastrar Colaborador"):
+        with st.expander("➕ Cadastrar Colaborador", expanded=False):
             novo_nome = st.text_input("Nome completo:", key="admin_novo_colab")
             if st.button("Adicionar Colaborador", key="btn_add_colab"):
                 if novo_nome and novo_nome not in COLABORADORES:
@@ -1911,7 +1921,7 @@ with col_disponibilidade:
                     st.warning("Digite o nome completo!")
         
         # Gerenciar Demandas Públicas
-        with st.expander("Gerenciar Demandas"):
+        with st.expander("📋 Gerenciar Demandas", expanded=False):
             nova_demanda_texto = st.text_area("Nova demanda:", height=100, key="admin_nova_demanda")
             
             col_p1, col_p2 = st.columns(2)
