@@ -72,14 +72,12 @@ ADMIN_COLABORADORES = [
     "Leonardo goncalves fleury"
 ]
 
-# --- INICIALIZAÇÃO OBRIGATÓRIA DO BANCO ANTES DE TUDO ---
-init_database()
-
+# --- Função para obter colaboradores do banco ---
 def get_colaboradores():
     """Retorna lista atualizada de colaboradores do banco de dados"""
     return listar_usuarios_ativos()
 
-# Agora a lista será carregada sem erro pois o banco já foi iniciado acima
+# PROBLEMA 6: Lista dinâmica (atualiza quando novo usuário é criado)
 COLABORADORES = get_colaboradores()
 
 # --- Constantes de Opções ---
@@ -1436,31 +1434,43 @@ with col_principal:
             """, unsafe_allow_html=True)
         
         # ========== DEMANDAS PÚBLICAS PISCANDO (ITEM 10) ==========
-        demandas_ativas = [d for d in st.session_state.get('demandas_publicas', []) if d.get('ativa', True)]
+        # Filtrar apenas demandas não direcionadas ou direcionadas para o responsável atual
+        demandas_ativas = [
+            d for d in st.session_state.get('demandas_publicas', []) 
+            if d.get('ativa', True) and (
+                d.get('direcionada_para') is None or 
+                d.get('direcionada_para') == responsavel
+            )
+        ]
         
         if demandas_ativas:
             st.markdown(f"""
             <div class="demand-alert">
-                <strong>⚡ {len(demandas_ativas)} DEMANDA(S) DISPONÍVEL(EIS) PARA ADESÃO</strong>
+                <strong>{len(demandas_ativas)} DEMANDA(S) DISPONÍVEL(EIS) PARA ADESÃO</strong>
             </div>
             """, unsafe_allow_html=True)
             
             # Mostrar até 3 demandas
             for dem in demandas_ativas[:3]:
-                cor_prioridade = {
-                    'Urgente': '🔴',
-                    'Alta': '🟠',
-                    'Média': '🟡',
-                    'Baixa': '🟢'
-                }.get(dem.get('prioridade', 'Média'), '🟡')
+                # Setor antes do título
+                setor = dem.get('setor', 'Geral')
+                prioridade = dem.get('prioridade', 'Média')
                 
-                with st.expander(f"{cor_prioridade} [{dem['prioridade']}] {dem['texto'][:60]}..."):
+                titulo = f"[{setor}] [{prioridade}] {dem['texto'][:50]}..."
+                
+                with st.expander(titulo):
+                    st.write(f"**Setor:** {setor}")
+                    st.write(f"**Prioridade:** {prioridade}")
                     st.write(f"**Descrição:** {dem['texto']}")
                     st.caption(f"Criada por: {dem.get('criado_por', 'Admin')}")
                     
-                    if st.button(f"✅ Aderir a esta demanda", key=f"aderir_dem_{dem['id']}", use_container_width=True):
+                    # Verificar se é direcionada
+                    if dem.get('direcionada_para'):
+                        st.info(f"📌 Esta demanda foi direcionada especificamente para você!")
+                    
+                    if st.button(f"Aderir a esta demanda", key=f"aderir_dem_{dem['id']}", use_container_width=True):
                         # Entrar na demanda automaticamente
-                        atividade_desc = f"[Demanda #{dem['id']}] {dem['texto'][:100]}"
+                        atividade_desc = f"[{setor}] {dem['texto'][:100]}"
                         
                         # Registrar início
                         st.session_state.demanda_start_times[responsavel] = now_brasilia()
@@ -1476,8 +1486,13 @@ with col_principal:
                         # Passar bastão
                         check_and_assume_baton()
                         
+                        # Marcar demanda como inativa se foi direcionada
+                        if dem.get('direcionada_para'):
+                            dem['ativa'] = False
+                            save_admin_data()
+                        
                         save_state()
-                        st.success(f"✅ {responsavel} aderiu à demanda #{dem['id']}!")
+                        st.success(f"{responsavel} aderiu à demanda!")
                         time.sleep(1)
                         st.rerun()
     else:
@@ -1860,11 +1875,11 @@ with col_disponibilidade:
     # ========== PAINEL ADMIN ==========
     if check_admin_auth():
         st.markdown("---")
-        st.markdown("### 👑 Painel Admin")
-        st.caption(f"Admin: {st.session_state.get('colaborador_selectbox', '')}")
+        st.markdown("### Painel Admin")
+        st.caption(f"Admin: {st.session_state.usuario_logado}")
         
         # Cadastrar Novo Colaborador
-        with st.expander("➕ Cadastrar Colaborador"):
+        with st.expander("Cadastrar Colaborador"):
             novo_nome = st.text_input("Nome completo:", key="admin_novo_colab")
             if st.button("Adicionar Colaborador", key="btn_add_colab"):
                 if novo_nome and novo_nome not in COLABORADORES:
@@ -1889,12 +1904,40 @@ with col_disponibilidade:
                     st.warning("Digite o nome completo!")
         
         # Gerenciar Demandas Públicas
-        with st.expander("📢 Gerenciar Demandas"):
+        with st.expander("Gerenciar Demandas"):
             nova_demanda_texto = st.text_area("Nova demanda:", height=100, key="admin_nova_demanda")
-            prioridade = st.select_slider("Prioridade:", 
-                                         options=["Baixa", "Média", "Alta", "Urgente"],
-                                         value="Média",
-                                         key="admin_prioridade")
+            
+            col_p1, col_p2 = st.columns(2)
+            
+            with col_p1:
+                prioridade = st.select_slider("Prioridade:", 
+                                             options=["Baixa", "Média", "Alta", "Urgente"],
+                                             value="Média",
+                                             key="admin_prioridade")
+            
+            with col_p2:
+                setor = st.selectbox("Setor:",
+                                    options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
+                                    key="admin_setor")
+            
+            # Direcionar para colaborador específico
+            direcionar = st.checkbox("Direcionar para colaborador específico?", key="admin_direcionar")
+            
+            colaborador_direcionado = None
+            if direcionar:
+                colaboradores_disponiveis = [c for c in COLABORADORES 
+                                            if c in st.session_state.bastao_queue]
+                
+                if colaboradores_disponiveis:
+                    colaborador_direcionado = st.selectbox(
+                        "Selecione o colaborador:",
+                        options=colaboradores_disponiveis,
+                        key="admin_colab_direcionado"
+                    )
+                    st.info(f"📌 A demanda será direcionada para {colaborador_direcionado}")
+                else:
+                    st.warning("⚠️ Nenhum colaborador disponível na fila no momento.")
+                    direcionar = False
             
             if st.button("Publicar Demanda", key="btn_pub_demanda"):
                 if nova_demanda_texto:
@@ -1905,13 +1948,40 @@ with col_disponibilidade:
                         'id': len(st.session_state.demandas_publicas) + 1,
                         'texto': nova_demanda_texto,
                         'prioridade': prioridade,
+                        'setor': setor,
                         'criado_em': now_brasilia().isoformat(),
-                        'criado_por': st.session_state.get('colaborador_selectbox', ''),
-                        'ativa': True
+                        'criado_por': st.session_state.usuario_logado,
+                        'ativa': True,
+                        'direcionada_para': colaborador_direcionado if direcionar else None
                     }
                     st.session_state.demandas_publicas.append(demanda_obj)
                     save_admin_data()
-                    st.success("✅ Demanda publicada!")
+                    
+                    # Se direcionada, já atribuir automaticamente
+                    if colaborador_direcionado:
+                        # Criar texto da atividade
+                        atividade_desc = f"[{setor}] {nova_demanda_texto[:100]}"
+                        
+                        # Registrar início
+                        st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
+                        
+                        # Atualizar status
+                        st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
+                        
+                        # Remover da fila
+                        if colaborador_direcionado in st.session_state.bastao_queue:
+                            st.session_state.bastao_queue.remove(colaborador_direcionado)
+                        st.session_state[f'check_{colaborador_direcionado}'] = False
+                        
+                        # Se tinha bastão, passar
+                        if 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, ''):
+                            check_and_assume_baton()
+                        
+                        save_state()
+                        st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
+                    else:
+                        st.success("✅ Demanda publicada!")
+                    
                     time.sleep(1)
                     st.rerun()
                 else:
@@ -1922,16 +1992,26 @@ with col_disponibilidade:
                 st.markdown("**Demandas Ativas:**")
                 for dem in st.session_state.demandas_publicas:
                     if dem.get('ativa', True):
-                        col1, col2 = st.columns([0.8, 0.2])
-                        col1.caption(f"{dem['id']}. {dem['texto'][:40]}...")
-                        if col2.button("❌", key=f"del_dem_{dem['id']}"):
+                        col1, col2 = st.columns([0.85, 0.15])
+                        
+                        # Mostrar setor antes do texto
+                        setor_tag = dem.get('setor', 'Geral')
+                        direcionado = dem.get('direcionada_para')
+                        
+                        texto_exibicao = f"[{setor_tag}] {dem['texto'][:35]}..."
+                        if direcionado:
+                            texto_exibicao = f"→ {direcionado}: " + texto_exibicao
+                        
+                        col1.caption(f"{dem['id']}. {texto_exibicao}")
+                        
+                        if col2.button("✕", key=f"del_dem_{dem['id']}"):
                             dem['ativa'] = False
                             save_admin_data()
                             st.rerun()
         
         # Botão Gerenciar Banco de Dados
         st.markdown("---")
-        if st.button("🗄️ Gerenciar Banco de Dados", use_container_width=True, type="secondary"):
+        if st.button("Gerenciar Banco de Dados", use_container_width=True, type="secondary"):
             st.session_state.active_view = 'admin_bd'
             st.rerun()
         
