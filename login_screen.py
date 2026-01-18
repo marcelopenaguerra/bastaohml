@@ -1,5 +1,34 @@
 import streamlit as st
 from auth_system import init_database, verificar_login, listar_usuarios_ativos, alterar_senha
+import secrets
+import hashlib
+
+def get_session_id():
+    """Gera ou recupera um ID único para esta sessão de navegador"""
+    # Tentar pegar da query string primeiro
+    query_params = st.query_params
+    
+    if 'session_id' in query_params:
+        return query_params['session_id']
+    
+    # Se não existe, criar novo
+    if 'session_id' not in st.session_state:
+        # Gerar ID único
+        st.session_state.session_id = secrets.token_urlsafe(32)
+    
+    # Salvar na URL
+    st.query_params['session_id'] = st.session_state.session_id
+    return st.session_state.session_id
+
+def save_session_to_cache(session_id, user_data):
+    """Salva dados da sessão no cache do Streamlit"""
+    cache_key = f"session_{session_id}"
+    st.session_state[cache_key] = user_data
+
+def load_session_from_cache(session_id):
+    """Carrega dados da sessão do cache"""
+    cache_key = f"session_{session_id}"
+    return st.session_state.get(cache_key, None)
 
 def mostrar_tela_troca_senha():
     """Tela obrigatória de troca de senha no primeiro acesso"""
@@ -127,13 +156,23 @@ def mostrar_tela_login():
                 
                 if usuario:
                     # Login bem-sucedido
-                    st.session_state.logged_in = True
-                    st.session_state.usuario_logado = usuario['nome']
-                    st.session_state.is_admin = usuario['is_admin']
-                    st.session_state.user_id = usuario['id']
-                    st.session_state.precisa_trocar_senha = usuario['primeiro_acesso']
+                    session_id = get_session_id()
                     
-                    # Sessão agora é APENAS no st.session_state (não compartilha entre usuários)
+                    # Dados da sessão
+                    user_data = {
+                        'logged_in': True,
+                        'usuario_logado': usuario['nome'],
+                        'is_admin': usuario['is_admin'],
+                        'user_id': usuario['id'],
+                        'precisa_trocar_senha': usuario['primeiro_acesso']
+                    }
+                    
+                    # Salvar no session_state
+                    for key, value in user_data.items():
+                        st.session_state[key] = value
+                    
+                    # Salvar no cache para persistir após refresh
+                    save_session_to_cache(session_id, user_data)
                     
                     st.success(f"✅ Bem-vindo(a), {usuario['nome']}!")
                     st.rerun()
@@ -146,6 +185,16 @@ def mostrar_tela_login():
 
 def verificar_autenticacao():
     """Verifica se usuário está autenticado"""
+    # Tentar restaurar sessão do cache
+    if not st.session_state.get('logged_in', False):
+        session_id = get_session_id()
+        cached_data = load_session_from_cache(session_id)
+        
+        if cached_data:
+            # Restaurar dados da sessão
+            for key, value in cached_data.items():
+                st.session_state[key] = value
+    
     if not st.session_state.get('logged_in', False):
         mostrar_tela_login()
         st.stop()
@@ -156,10 +205,22 @@ def verificar_autenticacao():
         st.stop()
 
 def fazer_logout():
-    """Faz logout do usuário"""
+    """Faz logout do usuário (limpa apenas dados de sessão)"""
+    # Limpar sessão do cache
+    if 'session_id' in st.session_state:
+        session_id = st.session_state.session_id
+        cache_key = f"session_{session_id}"
+        if cache_key in st.session_state:
+            del st.session_state[cache_key]
+    
+    # Limpar dados de login
     st.session_state.logged_in = False
     st.session_state.usuario_logado = None
     st.session_state.is_admin = False
     st.session_state.user_id = None
     st.session_state.precisa_trocar_senha = False
+    
+    # Limpar query params
+    st.query_params.clear()
+    
     st.rerun()
