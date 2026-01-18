@@ -2,54 +2,16 @@ import sqlite3
 import hashlib
 import streamlit as st
 from pathlib import Path
-import pickle
-import os
 
-# Caminho absoluto para evitar erro no Streamlit Cloud
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = Path(os.path.join(BASE_DIR, "bastao_users.db"))
-SESSION_FILE = Path(os.path.join(BASE_DIR, "session_data.pkl"))
+# Caminho do banco de dados
+DB_PATH = Path("bastao_users.db")
 
 def hash_password(password):
     """Hash de senha com SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
 
-def salvar_sessao():
-    """Salva dados da sessão em arquivo"""
-    try:
-        sessao = {
-            'logged_in': st.session_state.get('logged_in', False),
-            'usuario_logado': st.session_state.get('usuario_logado', None),
-            'is_admin': st.session_state.get('is_admin', False),
-            'user_id': st.session_state.get('user_id', None),
-            'precisa_trocar_senha': st.session_state.get('precisa_trocar_senha', False)
-        }
-        with open(SESSION_FILE, 'wb') as f:
-            pickle.dump(sessao, f)
-    except:
-        pass
-
-def carregar_sessao():
-    """Carrega dados da sessão do arquivo"""
-    try:
-        if SESSION_FILE.exists():
-            with open(SESSION_FILE, 'rb') as f:
-                sessao = pickle.load(f)
-                for key, value in sessao.items():
-                    if key not in st.session_state:
-                        st.session_state[key] = value
-                return True
-    except:
-        pass
-    return False
-
-def limpar_sessao():
-    """Remove arquivo de sessão"""
-    try:
-        if SESSION_FILE.exists():
-            os.remove(SESSION_FILE)
-    except:
-        pass
+# REMOVIDO: salvar_sessao, carregar_sessao, limpar_sessao
+# Sessão agora é APENAS no st.session_state (não compartilha entre usuários)
 
 def init_database():
     """Inicializa banco de dados de usuários"""
