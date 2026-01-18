@@ -19,6 +19,7 @@ from pathlib import Path
 # Sistema de autenticação
 from auth_system import init_database, verificar_login, listar_usuarios_ativos, adicionar_usuario, is_usuario_admin
 from login_screen import verificar_autenticacao, mostrar_tela_login, fazer_logout
+from admin_bd_panel import mostrar_painel_admin_bd, adicionar_menu_bd_sidebar
 
 # Timezone de Brasília
 BRASILIA_TZ = pytz.timezone('America/Sao_Paulo')
@@ -1841,6 +1842,10 @@ with col_principal:
                         # Exibir preview
                         st.success("✅ Relatório gerado! Clique no botão acima para baixar e abrir em nova aba.")
                         st.info("💡 Dica: Após baixar, clique duas vezes no arquivo .html para abrir no navegador")
+    
+    # ==================== PAINEL ADMIN BD ====================
+    elif st.session_state.active_view == "admin_bd":
+        mostrar_painel_admin_bd()
 
 # Coluna lateral (Disponibilidade)
 with col_disponibilidade:
@@ -1918,6 +1923,12 @@ with col_disponibilidade:
                             dem['ativa'] = False
                             save_admin_data()
                             st.rerun()
+        
+        # Botão Gerenciar Banco de Dados
+        st.markdown("---")
+        if st.button("🗄️ Gerenciar Banco de Dados", use_container_width=True, type="secondary"):
+            st.session_state.active_view = 'admin_bd'
+            st.rerun()
         
         st.markdown("---")
     
