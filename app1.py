@@ -1,11 +1,12 @@
 # ============================================
 # CONTROLE DE BASTÃO Informática 2026
-# Versão: Completa sem Integrações Externas
+# Versão: Completa com Login e Banco de Dados
 # ============================================
 import streamlit as st
 import pandas as pd
 import time
 from datetime import datetime, timedelta, date, time as dt_time
+import pytz  # Timezone de Brasília
 from operator import itemgetter
 from streamlit_autorefresh import st_autorefresh
 import random
@@ -14,6 +15,17 @@ import os
 
 import json
 from pathlib import Path
+
+# Sistema de autenticação
+from auth_system import init_database, verificar_login, listar_usuarios_ativos, adicionar_usuario, is_usuario_admin
+from login_screen import verificar_autenticacao, mostrar_tela_login, fazer_logout
+
+# Timezone de Brasília
+BRASILIA_TZ = pytz.timezone('America/Sao_Paulo')
+
+def now_brasilia():
+    """Retorna datetime atual no horário de Brasília"""
+    return datetime.now(BRASILIA_TZ)
 
 # ==================== FORÇAR LIGHT MODE ====================
 st.set_page_config(
@@ -141,9 +153,8 @@ def load_admin_data():
     return False
 
 def check_admin_auth():
-    """Verifica se o colaborador selecionado é admin"""
-    colaborador_atual = st.session_state.get('colaborador_selectbox', '')
-    return colaborador_atual in ADMIN_COLABORADORES
+    """Verifica se o usuário logado é admin"""
+    return st.session_state.get('is_admin', False)
 
 def load_state():
     """Carrega estado do JSON"""
@@ -603,7 +614,7 @@ def check_and_assume_baton():
             old_status = s_current
             new_status = f"Bastão | {old_status}" if old_status and old_status != "Indisponível" else "Bastão"
             st.session_state.status_texto[should_have_baton] = new_status
-            st.session_state.bastao_start_time = datetime.now()
+            st.session_state.bastao_start_time = now_brasilia()
             changed = True
     elif not should_have_baton:
         if current_holder:
@@ -674,12 +685,12 @@ def rotate_bastao():
         old_n_status = st.session_state.status_texto.get(next_holder, '')
         new_n_status = f"Bastão | {old_n_status}" if old_n_status else "Bastão"
         st.session_state.status_texto[next_holder] = new_n_status
-        st.session_state.bastao_start_time = datetime.now()
+        st.session_state.bastao_start_time = now_brasilia()
         
         st.session_state.bastao_counts[current_holder] = st.session_state.bastao_counts.get(current_holder, 0) + 1
         
         st.session_state.success_message = f"🎉 Bastão passou de **{current_holder}** para **{next_holder}**!"
-        st.session_state.success_message_time = datetime.now()
+        st.session_state.success_message_time = now_brasilia()
         save_state()
         st.rerun()
     else:
@@ -687,7 +698,7 @@ def rotate_bastao():
         check_and_assume_baton()
 
 def update_status(new_status_part, force_exit_queue=False):
-    selected = st.session_state.colaborador_selectbox
+    selected = st.session_state.usuario_logado
     
     if not selected or selected == 'Selecione um nome':
         st.warning('Selecione um(a) colaborador(a).')
@@ -698,12 +709,12 @@ def update_status(new_status_part, force_exit_queue=False):
     
     # Registrar horário de almoço
     if new_status_part == 'Almoço':
-        st.session_state.almoco_times[selected] = datetime.now()
+        st.session_state.almoco_times[selected] = now_brasilia()
     
     # Registrar início de demanda/atividade
     if 'Atividade:' in new_status_part or force_exit_queue:
         if selected not in st.session_state.demanda_start_times:
-            st.session_state.demanda_start_times[selected] = datetime.now()
+            st.session_state.demanda_start_times[selected] = now_brasilia()
     
     if should_exit_queue:
         final_status = new_status_part
@@ -760,7 +771,7 @@ def finalizar_demanda(colaborador):
     # Registrar fim da demanda
     if colaborador in st.session_state.demanda_start_times:
         start_time = st.session_state.demanda_start_times[colaborador]
-        end_time = datetime.now()
+        end_time = now_brasilia()
         duration = end_time - start_time
         
         # Pegar atividade
@@ -774,7 +785,7 @@ def finalizar_demanda(colaborador):
             'inicio': start_time.isoformat(),
             'fim': end_time.isoformat(),
             'duracao_minutos': duration.total_seconds() / 60,
-            'timestamp': datetime.now()
+            'timestamp': now_brasilia()
         }
         st.session_state.demanda_logs.append(log_entry)
         st.session_state.daily_logs.append(log_entry)
@@ -797,7 +808,7 @@ def finalizar_demanda(colaborador):
 
 def check_almoco_timeout():
     """Verifica se alguém está há mais de 1h no almoço e retorna automaticamente"""
-    now = datetime.now()
+    now = now_brasilia()
     almoco_times = st.session_state.get('almoco_times', {})
     
     for nome in list(almoco_times.keys()):
@@ -938,18 +949,18 @@ def gerar_html_relatorio(logs_filtrados):
         <div class="header">
             <h1>📊 RELATÓRIO DE REGISTROS - Informática</h1>
             <p>Sistema de Controle de Bastão</p>
-            <p><strong>Gerado em:</strong> """ + datetime.now().strftime("%d/%m/%Y às %H:%M:%S") + """</p>
+            <p><strong>Gerado em:</strong> """ + now_brasilia().strftime("%d/%m/%Y às %H:%M:%S") + """</p>
             <p><strong>Total de registros:</strong> """ + str(len(logs_filtrados)) + """</p>
         </div>
     """
     
     for idx, log in enumerate(logs_filtrados, 1):
-        timestamp = log.get('timestamp', datetime.now())
+        timestamp = log.get('timestamp', now_brasilia())
         if isinstance(timestamp, str):
             try:
                 timestamp = datetime.fromisoformat(timestamp)
             except:
-                timestamp = datetime.now()
+                timestamp = now_brasilia()
         
         data_hora = timestamp.strftime("%d/%m/%Y %H:%M:%S")
         colaborador = log.get('colaborador', 'N/A')
@@ -1125,7 +1136,7 @@ def handle_simon_game():
         st.error(f"❌ Errou! Você chegou ao Nível {st.session_state.simon_level}.")
         st.markdown(f"Sequência correta era: {' '.join(st.session_state.simon_sequence)}")
         
-        colaborador = st.session_state.colaborador_selectbox
+        colaborador = st.session_state.usuario_logado
         if colaborador and colaborador != 'Selecione um nome':
             score = st.session_state.simon_level
             current_ranking = st.session_state.simon_ranking
@@ -1167,8 +1178,19 @@ def toggle_view(view_name):
 # ============================================
 
 st.set_page_config(page_title="Controle Bastão Informática 2026", layout="wide", page_icon="🥂")
+# ==================== INICIALIZAÇÃO ====================
+# Inicializar banco de dados
+init_database()
+
+# Inicializar sessão
 init_session_state()
 apply_modern_styles()
+
+# ==================== VERIFICAÇÃO DE LOGIN ====================
+verificar_autenticacao()  # Se não logado, mostra tela de login e para
+
+# A partir daqui, usuário está autenticado
+# Usar st.session_state.usuario_logado e st.session_state.is_admin
 st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
 
 # ==================== HEADER ====================
@@ -1212,29 +1234,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==================== ENTRADA RÁPIDA ====================
-with st.container():
-    col_label, col_select, col_button = st.columns([1, 3, 1])
-    
-    with col_label:
-        st.markdown("**Entrada Rápida**")
-    
-    with col_select:
-        novo_responsavel = st.selectbox(
-            "Selecione colaborador", 
-            options=["Selecione..."] + COLABORADORES,
-            label_visibility="collapsed", 
-            key="quick_enter"
-        )
-    
-    with col_button:
-        if st.button("➕ Entrar", help="Entrar na fila imediatamente", use_container_width=True, type="primary"):
-            if novo_responsavel and novo_responsavel != "Selecione...":
-                toggle_queue(novo_responsavel)
-                st.session_state.colaborador_selectbox = novo_responsavel
-                st.success(f"✅ {novo_responsavel} entrou na fila!")
-                save_state()
-                st.rerun()
-
 st.markdown("---")
 
 
@@ -1385,7 +1384,7 @@ with col_principal:
         
         duration = timedelta()
         if st.session_state.bastao_start_time:
-            duration = datetime.now() - st.session_state.bastao_start_time
+            duration = now_brasilia() - st.session_state.bastao_start_time
         
         with col_metric1:
             st.markdown(f"""
@@ -1463,7 +1462,7 @@ with col_principal:
                         atividade_desc = f"[Demanda #{dem['id']}] {dem['texto'][:100]}"
                         
                         # Registrar início
-                        st.session_state.demanda_start_times[responsavel] = datetime.now()
+                        st.session_state.demanda_start_times[responsavel] = now_brasilia()
                         
                         # Atualizar status
                         st.session_state.status_texto[responsavel] = f"Atividade: {atividade_desc}"
@@ -1515,7 +1514,7 @@ with col_principal:
     
     # Exibir mensagem de sucesso se existir
     if st.session_state.get('success_message') and st.session_state.get('success_message_time'):
-        elapsed = (datetime.now() - st.session_state.success_message_time).total_seconds()
+        elapsed = (now_brasilia() - st.session_state.success_message_time).total_seconds()
         if elapsed < 10:
             st.success(st.session_state.success_message)
         else:
@@ -1535,8 +1534,18 @@ with col_principal:
         st.markdown("&nbsp;")
     
     st.markdown("")
-    st.subheader("**Colaborador(a)**")
-    st.selectbox('Selecione:', options=['Selecione um nome'] + COLABORADORES, key='colaborador_selectbox', label_visibility='collapsed')
+    
+    # Exibir usuário logado
+    col_user, col_logout = st.columns([3, 1])
+    
+    with col_user:
+        st.subheader(f"👤 **{st.session_state.usuario_logado}**")
+        if st.session_state.is_admin:
+            st.caption("👑 Administrador")
+    
+    with col_logout:
+        if st.button("🚪", help="Sair", use_container_width=True):
+            fazer_logout()
     
     st.markdown("**Ações:**")
     
@@ -1571,13 +1580,13 @@ with col_principal:
             with col_a1:
                 if st.button("Confirmar Atividade", type="primary", use_container_width=True):
                     if atividade_desc:
-                        colaborador = st.session_state.colaborador_selectbox
+                        colaborador = st.session_state.usuario_logado
                         
                         # Verificar se tem o bastão
                         tem_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador, '')
                         
                         # Registrar início da demanda
-                        st.session_state.demanda_start_times[colaborador] = datetime.now()
+                        st.session_state.demanda_start_times[colaborador] = now_brasilia()
                         
                         # Atualizar status (remove da fila)
                         status_final = f"Atividade: {atividade_desc}"
@@ -1632,11 +1641,11 @@ with col_principal:
             at_desfecho = st.selectbox("Desfecho:", REG_DESFECHO_OPCOES, index=None, placeholder="Selecione...", key="at_outcome")
             
             if st.button("Salvar Registro Localmente", type="primary", use_container_width=True):
-                colaborador = st.session_state.colaborador_selectbox
+                colaborador = st.session_state.usuario_logado
                 if colaborador and colaborador != "Selecione um nome":
                     st.success("✅ Atendimento registrado localmente!")
                     log_entry = {
-                        'timestamp': datetime.now(),
+                        'timestamp': now_brasilia(),
                         'colaborador': colaborador,
                         'data': at_data,
                         'usuario': at_usuario,
@@ -1664,11 +1673,11 @@ with col_principal:
             en_resultado = st.text_area("Resultado:", height=150)
             
             if st.button("Salvar Relato Localmente", type="primary", use_container_width=True):
-                colaborador = st.session_state.colaborador_selectbox
+                colaborador = st.session_state.usuario_logado
                 if colaborador and colaborador != "Selecione um nome":
                     st.success("✅ Relato salvo localmente!")
                     erro_entry = {
-                        'timestamp': datetime.now(),
+                        'timestamp': now_brasilia(),
                         'colaborador': colaborador,
                         'titulo': en_titulo,
                         'objetivo': en_objetivo,
@@ -1734,12 +1743,12 @@ with col_principal:
                 
                 # Exibir logs
                 for idx, log in enumerate(reversed(logs_filtrados), 1):
-                    timestamp = log.get('timestamp', datetime.now())
+                    timestamp = log.get('timestamp', now_brasilia())
                     if isinstance(timestamp, str):
                         try:
                             timestamp = datetime.fromisoformat(timestamp)
                         except:
-                            timestamp = datetime.now()
+                            timestamp = now_brasilia()
                     
                     data_hora = timestamp.strftime("%d/%m/%Y %H:%M:%S")
                     colaborador = log.get('colaborador', 'N/A')
@@ -1825,7 +1834,7 @@ with col_principal:
                         st.download_button(
                             label="⬇️ Baixar Relatório HTML",
                             data=html_content,
-                            file_name=f"relatorio_informatica_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                            file_name=f"relatorio_informatica_{now_brasilia().strftime('%Y%m%d_%H%M%S')}.html",
                             mime="text/html"
                         )
                         
@@ -1886,7 +1895,7 @@ with col_disponibilidade:
                         'id': len(st.session_state.demandas_publicas) + 1,
                         'texto': nova_demanda_texto,
                         'prioridade': prioridade,
-                        'criado_em': datetime.now().isoformat(),
+                        'criado_em': now_brasilia().isoformat(),
                         'criado_por': st.session_state.get('colaborador_selectbox', ''),
                         'ativa': True
                     }
@@ -1988,7 +1997,7 @@ with col_disponibilidade:
                     start_time = st.session_state.demanda_start_times[nome]
                     if isinstance(start_time, str):
                         start_time = datetime.fromisoformat(start_time)
-                    elapsed = datetime.now() - start_time
+                    elapsed = now_brasilia() - start_time
                     elapsed_mins = int(elapsed.total_seconds() / 60)
                     col_nome.caption(f"⏱️ {elapsed_mins} min")
                 
