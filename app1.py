@@ -21,6 +21,9 @@ from auth_system import init_database, verificar_login, listar_usuarios_ativos, 
 from login_screen import verificar_autenticacao, mostrar_tela_login, fazer_logout
 from admin_bd_panel import mostrar_painel_admin_bd, adicionar_menu_bd_sidebar
 
+# Sistema de Estado Compartilhado
+from shared_state import SharedState
+
 # Timezone de Brasília
 BRASILIA_TZ = pytz.timezone('America/Sao_Paulo')
 
@@ -104,87 +107,25 @@ BASTAO_EMOJI = "🥂"
 
 
 def save_state():
-    """Salva estado atual em JSON"""
-    try:
-        data = {
-            'bastao_queue': st.session_state.bastao_queue,
-            'status_texto': st.session_state.status_texto,
-            'bastao_start_time': st.session_state.bastao_start_time.isoformat() if st.session_state.bastao_start_time else None,
-            'bastao_counts': st.session_state.bastao_counts,
-            'simon_ranking': st.session_state.simon_ranking,
-            'daily_logs': st.session_state.daily_logs,
-            'checks': {nome: st.session_state.get(f'check_{nome}', False) for nome in COLABORADORES},
-            'almoco_times': {k: v.isoformat() if isinstance(v, datetime) else v for k, v in st.session_state.get('almoco_times', {}).items()},
-            'demanda_start_times': {k: v.isoformat() if isinstance(v, datetime) else v for k, v in st.session_state.get('demanda_start_times', {}).items()},
-            'demanda_logs': st.session_state.get('demanda_logs', [])
-        }
-        STATE_FILE.write_text(json.dumps(data, default=str, ensure_ascii=False, indent=2))
-    except:
-        pass
+    """Salva estado atual - USA SHARED STATE"""
+    SharedState.sync_from_session_state()
+
+def load_state():
+    """Carrega estado - USA SHARED STATE"""
+    SharedState.sync_to_session_state()
+    return True
 
 def save_admin_data():
-    """Salva dados administrativos (colaboradores e demandas)"""
-    try:
-        data = {
-            'colaboradores_extras': st.session_state.get('colaboradores_extras', []),
-            'demandas_publicas': st.session_state.get('demandas_publicas', []),
-            'almoco_times': st.session_state.get('almoco_times', {}),
-            'demanda_logs': st.session_state.get('demanda_logs', [])
-        }
-        ADMIN_FILE.write_text(json.dumps(data, default=str, ensure_ascii=False, indent=2))
-    except:
-        pass
+    """Salva dados administrativos"""
+    SharedState.save_admin_data()
 
 def load_admin_data():
     """Carrega dados administrativos"""
-    try:
-        if ADMIN_FILE.exists():
-            data = json.loads(ADMIN_FILE.read_text())
-            st.session_state.colaboradores_extras = data.get('colaboradores_extras', [])
-            st.session_state.demandas_publicas = data.get('demandas_publicas', [])
-            st.session_state.almoco_times = data.get('almoco_times', {})
-            st.session_state.demanda_logs = data.get('demanda_logs', [])
-            return True
-    except:
-        pass
-    return False
+    return SharedState.load_admin_data()
 
 def check_admin_auth():
     """Verifica se o usuário logado é admin"""
     return st.session_state.get('is_admin', False)
-
-def load_state():
-    """Carrega estado do JSON"""
-    try:
-        if STATE_FILE.exists():
-            data = json.loads(STATE_FILE.read_text())
-            st.session_state.bastao_queue = data.get('bastao_queue', [])
-            st.session_state.status_texto = data.get('status_texto', {nome: 'Indisponível' for nome in COLABORADORES})
-            
-            time_str = data.get('bastao_start_time')
-            st.session_state.bastao_start_time = datetime.fromisoformat(time_str) if time_str else None
-            
-            st.session_state.bastao_counts = data.get('bastao_counts', {nome: 0 for nome in COLABORADORES})
-            st.session_state.simon_ranking = data.get('simon_ranking', [])
-            st.session_state.daily_logs = data.get('daily_logs', [])
-            
-            # Carregar novos campos
-            almoco_data = data.get('almoco_times', {})
-            st.session_state.almoco_times = {k: datetime.fromisoformat(v) if isinstance(v, str) else v for k, v in almoco_data.items()}
-            
-            demanda_times = data.get('demanda_start_times', {})
-            st.session_state.demanda_start_times = {k: datetime.fromisoformat(v) if isinstance(v, str) else v for k, v in demanda_times.items()}
-            
-            st.session_state.demanda_logs = data.get('demanda_logs', [])
-            
-            for nome, val in data.get('checks', {}).items():
-                st.session_state[f'check_{nome}'] = val
-            return True
-    except:
-        pass
-    return False
-
-
 
 def apply_modern_styles():
     """Aplica design profissional moderno - FORÇAR LIGHT MODE"""
@@ -1210,8 +1151,11 @@ apply_modern_styles()
 # ==================== VERIFICAÇÃO DE LOGIN ====================
 verificar_autenticacao()  # Se não logado, mostra tela de login e para
 
-# A partir daqui, usuário está autenticado
-# Usar st.session_state.usuario_logado e st.session_state.is_admin
+# ==================== SINCRONIZAÇÃO DE ESTADO ====================
+# CRÍTICO: Carregar estado mais recente do disco ANTES de renderizar
+SharedState.sync_to_session_state()
+
+# A partir daqui, usuário está autenticado e tem estado sincronizado
 
 # PROBLEMA 7: Adicionar automaticamente na fila ao fazer login
 # MAS NÃO adicionar se está em status bloqueante (Almoço, Ausente, Saída, Atividade)
@@ -1279,7 +1223,8 @@ st.markdown("---")
 
 
 # Auto-refresh
-st_autorefresh(interval=8000, key='auto_rerun_key')
+# Auto-refresh a cada 3 segundos para sincronização em tempo real
+st_autorefresh(interval=3000, key='auto_rerun_key')
 
 # Verificar timeout de almoço (1 hora)
 check_almoco_timeout()
@@ -1603,16 +1548,21 @@ with col_principal:
     
     with col_logout:
         if st.button("🚪", help="Sair", use_container_width=True):
-            # Marcar como Ausente antes de fazer logout
+            # CRÍTICO: Marcar como Ausente ANTES de fazer logout
             usuario_atual = st.session_state.usuario_logado
             if usuario_atual:
+                # Remover da fila
                 if usuario_atual in st.session_state.bastao_queue:
                     st.session_state.bastao_queue.remove(usuario_atual)
+                
+                # Marcar como Ausente
                 st.session_state.status_texto[usuario_atual] = 'Ausente'
                 st.session_state[f'check_{usuario_atual}'] = False
-                save_state()
+                
+                # SALVAR ESTADO NO DISCO IMEDIATAMENTE
+                SharedState.sync_from_session_state()
             
-            # Fazer logout
+            # Agora fazer logout
             fazer_logout()
     
     st.markdown("**Ações:**")
