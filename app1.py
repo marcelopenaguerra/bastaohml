@@ -1479,18 +1479,12 @@ with col_principal:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 
-                # Limpar texto da demanda (remover prefixos duplicados e "arr")
-                texto_limpo = dem['texto'].strip()
-                
-                # Remover todas as variações de "arr" no início
-                while texto_limpo.startswith(('arr[', 'arr', '.arr', '_arr')):
-                    if texto_limpo.startswith('arr['):
-                        texto_limpo = texto_limpo[3:]  # Remove "arr"
-                    elif texto_limpo.startswith(('.arr', '_arr')):
-                        texto_limpo = texto_limpo[4:]  # Remove ".arr" ou "_arr"
-                    elif texto_limpo.startswith('arr'):
-                        texto_limpo = texto_limpo[3:]  # Remove "arr"
-                    texto_limpo = texto_limpo.strip()
+                # Limpar QUALQUER "arr" do início do texto
+                texto_limpo = dem['texto']
+                # Remove qualquer coisa antes do primeiro colchete [
+                if '[' in texto_limpo and not texto_limpo.startswith('['):
+                    # Ex: ".arr[Geral] texto" → "[Geral] texto"
+                    texto_limpo = texto_limpo[texto_limpo.index('['):]
                 
                 titulo = f"[{setor}] [{prioridade}] {texto_limpo[:50]}..."
                 
@@ -1969,18 +1963,11 @@ with col_principal:
                             if 'demandas_publicas' not in st.session_state:
                                 st.session_state.demandas_publicas = []
                             
-                            # Limpar texto da demanda (remover prefixos indesejados e "arr")
+                            # Limpar QUALQUER "arr" do início
                             texto_limpo = nova_demanda_texto.strip()
-                            
-                            # Remover todas as variações de "arr" no início
-                            while texto_limpo.startswith(('arr[', 'arr', '.arr', '_arr')):
-                                if texto_limpo.startswith('arr['):
-                                    texto_limpo = texto_limpo[3:]
-                                elif texto_limpo.startswith(('.arr', '_arr')):
-                                    texto_limpo = texto_limpo[4:]
-                                elif texto_limpo.startswith('arr'):
-                                    texto_limpo = texto_limpo[3:]
-                                texto_limpo = texto_limpo.strip()
+                            # Remove tudo antes do primeiro colchete [
+                            if '[' in texto_limpo and not texto_limpo.startswith('['):
+                                texto_limpo = texto_limpo[texto_limpo.index('['):]
                             
                             demanda_obj = {
                                 'id': len(st.session_state.demandas_publicas) + 1,
