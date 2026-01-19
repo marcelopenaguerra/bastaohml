@@ -115,12 +115,15 @@ def mostrar_tela_login():
                 usuario = verificar_login(nome, senha)
                 
                 if usuario:
-                    # Login bem-sucedido - SIMPLES!
+                    # Login bem-sucedido
                     st.session_state.logged_in = True
                     st.session_state.usuario_logado = usuario['nome']
                     st.session_state.is_admin = usuario['is_admin']
                     st.session_state.user_id = usuario['id']
                     st.session_state.precisa_trocar_senha = usuario['primeiro_acesso']
+                    
+                    # CRÍTICO: Adicionar token na URL para persistir sessão
+                    st.query_params['user'] = usuario['nome']
                     
                     st.success(f"✅ Bem-vindo(a), {usuario['nome']}!")
                     st.rerun()
@@ -132,7 +135,24 @@ def mostrar_tela_login():
         st.caption("🔒 Sistema seguro com autenticação de usuários")
 
 def verificar_autenticacao():
-    """Verifica se usuário está autenticado - SIMPLES!"""
+    """Verifica se usuário está autenticado - COM PERSISTÊNCIA"""
+    # Tentar restaurar sessão de query params
+    if not st.session_state.get('logged_in', False):
+        # Verificar se há token na URL
+        if 'user' in st.query_params:
+            usuario_nome = st.query_params['user']
+            # Restaurar sessão
+            from auth_system import verificar_login, listar_usuarios_ativos
+            usuarios = listar_usuarios_ativos()
+            if usuario_nome in usuarios:
+                # Recriar sessão sem senha (já estava logado)
+                st.session_state.logged_in = True
+                st.session_state.usuario_logado = usuario_nome
+                # Buscar info do usuário no banco
+                from auth_system import is_usuario_admin
+                st.session_state.is_admin = is_usuario_admin(usuario_nome)
+                st.session_state.precisa_trocar_senha = False
+    
     if not st.session_state.get('logged_in', False):
         mostrar_tela_login()
         st.stop()
@@ -144,6 +164,10 @@ def verificar_autenticacao():
 
 def fazer_logout():
     """Faz logout do usuário - SIMPLES!"""
+    # Limpar query params
+    if 'user' in st.query_params:
+        del st.query_params['user']
+    
     # Limpar apenas dados de login
     st.session_state.logged_in = False
     st.session_state.usuario_logado = None
