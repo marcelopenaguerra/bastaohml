@@ -2024,7 +2024,9 @@ with col_principal:
 
 # Coluna lateral (Disponibilidade)
 with col_disponibilidade:
-    st.markdown("###")
+    # Espaçamento para alinhar com o card do usuário
+    st.markdown("<div style='height: 155px;'></div>", unsafe_allow_html=True)
+    
     st.header('Status dos(as) Colaboradores(as)')
     
     # Listas de status
