@@ -338,14 +338,22 @@ def apply_modern_styles():
         font-weight: 500 !important;
     }
     
-    /* ==================== CHECKBOX MAIS VISÍVEL (MacBook) ==================== */
-    /* Aumentar tamanho e contraste do checkbox */
+    /* ==================== CHECKBOX SUPER VISÍVEL (MacBook) ==================== */
+    /* Container do checkbox com fundo colorido */
     div[data-testid="stCheckbox"] {
         display: flex !important;
         justify-content: center !important;
         align-items: center !important;
         padding: 0.5rem !important;
-        min-height: 40px !important;
+        min-height: 45px !important;
+        background: #f1f5f9 !important;
+        border-radius: 6px !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+    
+    div[data-testid="stCheckbox"]:hover {
+        background: #e2e8f0 !important;
+        border-color: #cbd5e1 !important;
     }
     
     div[data-testid="stCheckbox"] > label {
@@ -353,44 +361,55 @@ def apply_modern_styles():
         justify-content: center !important;
         align-items: center !important;
         cursor: pointer !important;
+        padding: 0 !important;
+        margin: 0 !important;
     }
     
-    /* Aumentar tamanho do checkbox */
+    /* Checkbox MUITO MAIOR e mais visível */
     div[data-testid="stCheckbox"] input[type="checkbox"] {
-        width: 20px !important;
-        height: 20px !important;
-        min-width: 20px !important;
-        min-height: 20px !important;
+        width: 24px !important;
+        height: 24px !important;
+        min-width: 24px !important;
+        min-height: 24px !important;
         cursor: pointer !important;
         -webkit-appearance: none !important;
         appearance: none !important;
-        border: 2px solid #cbd5e1 !important;
-        border-radius: 4px !important;
+        border: 2.5px solid #94a3b8 !important;
+        border-radius: 5px !important;
         background: white !important;
         position: relative !important;
+        transition: all 0.2s ease !important;
     }
     
-    /* Checkbox marcado */
+    /* Checkbox marcado - AZUL FORTE */
     div[data-testid="stCheckbox"] input[type="checkbox"]:checked {
         background: #2563eb !important;
         border-color: #2563eb !important;
     }
     
-    /* Checkmark visível */
+    /* Checkmark BEM VISÍVEL */
     div[data-testid="stCheckbox"] input[type="checkbox"]:checked::after {
         content: "✓" !important;
         position: absolute !important;
         color: white !important;
-        font-size: 14px !important;
-        font-weight: bold !important;
-        left: 3px !important;
-        top: -1px !important;
+        font-size: 18px !important;
+        font-weight: 900 !important;
+        left: 4px !important;
+        top: -2px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.2) !important;
     }
     
-    /* Hover effect */
+    /* Hover effect FORTE */
     div[data-testid="stCheckbox"] input[type="checkbox"]:hover {
-        border-color: #94a3b8 !important;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15) !important;
+        transform: scale(1.05) !important;
+    }
+    
+    /* Focus effect */
+    div[data-testid="stCheckbox"] input[type="checkbox"]:focus {
+        outline: none !important;
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.25) !important;
     }
     
     /* Scrollbar */
@@ -1228,6 +1247,9 @@ if usuario_atual not in st.session_state.bastao_queue and not esta_bloqueado:
     st.session_state[f'check_{usuario_atual}'] = True
     if st.session_state.status_texto.get(usuario_atual) == 'Indisponível':
         st.session_state.status_texto[usuario_atual] = ''
+    
+    # CRÍTICO: Verificar se deve pegar bastão automaticamente
+    check_and_assume_baton()
     save_state()
 
 st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
@@ -1283,6 +1305,52 @@ st_autorefresh(interval=3000, key='auto_rerun_key')
 # Verificar timeout de almoço (1 hora)
 check_almoco_timeout()
 
+# ==================== HEADER COM USUÁRIO ====================
+# Header com título e card de usuário
+col_title, col_user_header = st.columns([2, 1])
+
+with col_title:
+    st.markdown("""
+    <div style='padding: 1rem 0;'>
+        <h1 style='margin: 0; font-size: 2rem; font-weight: 700; color: #0f172a;'>
+            Controle de Bastão
+        </h1>
+        <p style='margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.95rem;'>
+            Setor de Informática • TJMG • 2026
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_user_header:
+    st.markdown(f"""
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                padding: 0.75rem 1rem; 
+                border-radius: 8px; 
+                box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+                text-align: right;
+                margin-top: 0.5rem;'>
+        <div style='color: white; font-size: 0.95rem; font-weight: 600; margin-bottom: 0.15rem;'>
+            {st.session_state.usuario_logado}
+        </div>
+        <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem;'>
+            {'👑 Admin' if st.session_state.is_admin else '👤 Colaborador'}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Botão Sair
+    if st.button("Sair", help="Fazer Logout", use_container_width=True, key="btn_logout_header"):
+        usuario_atual = st.session_state.usuario_logado
+        if usuario_atual:
+            if usuario_atual in st.session_state.bastao_queue:
+                st.session_state.bastao_queue.remove(usuario_atual)
+            st.session_state.status_texto[usuario_atual] = 'Ausente'
+            st.session_state[f'check_{usuario_atual}'] = False
+            SharedState.sync_from_session_state()
+        fazer_logout()
+
+st.markdown("---")
+
 # Layout principal
 col_principal, col_disponibilidade = st.columns([1.5, 1])
 queue = st.session_state.bastao_queue
@@ -1309,46 +1377,6 @@ if proximo_index != -1:
         checked_count += 1
 
 with col_principal:
-    # ========== USUÁRIO NO CANTO SUPERIOR DIREITO ==========
-    col_spacer, col_user_card = st.columns([0.65, 0.35])
-    
-    with col_user_card:
-        # Card compacto e elegante
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                    padding: 0.75rem 1rem; 
-                    border-radius: 8px; 
-                    margin-bottom: 1rem;
-                    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-                    text-align: right;'>
-            <div style='color: white; font-size: 0.95rem; font-weight: 600; margin-bottom: 0.15rem;'>
-                {st.session_state.usuario_logado}
-            </div>
-            <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem;'>
-                {'👑 Administrador' if st.session_state.is_admin else '👤 Colaborador'}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Botão Sair limpo e pequeno
-        if st.button("Sair", help="Fazer Logout", use_container_width=True, key="btn_logout_top"):
-            # CRÍTICO: Marcar como Ausente ANTES de fazer logout
-            usuario_atual = st.session_state.usuario_logado
-            if usuario_atual:
-                # Remover da fila
-                if usuario_atual in st.session_state.bastao_queue:
-                    st.session_state.bastao_queue.remove(usuario_atual)
-                
-                # Marcar como Ausente
-                st.session_state.status_texto[usuario_atual] = 'Ausente'
-                st.session_state[f'check_{usuario_atual}'] = False
-                
-                # SALVAR ESTADO NO DISCO IMEDIATAMENTE
-                SharedState.sync_from_session_state()
-            
-            # Agora fazer logout
-            fazer_logout()
-    
     if responsavel:
         # Barra sticky que fica fixa no topo ao rolar
         st.markdown(f"""
