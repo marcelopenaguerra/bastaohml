@@ -1183,46 +1183,6 @@ if usuario_atual not in st.session_state.bastao_queue and not esta_bloqueado:
 
 st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
 
-# ==================== HEADER ====================
-st.markdown("""
-<style>
-.header-card {
-    background: white;
-    padding: 1rem;
-    border-radius: 12px;
-    margin-bottom: 0.5rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    border-bottom: 3px solid #2563eb;
-}
-
-.header-title {
-    color: #0f172a;
-    margin: 0;
-    font-size: 1.75rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-}
-
-.header-subtitle {
-    color: #64748b;
-    margin: 0.375rem 0 0 0;
-    font-size: 0.8125rem;
-    font-weight: 500;
-}
-</style>
-
-<div class="header-card">
-    <div style="text-align: center;">
-        <h1 class="header-title">
-            Controle de Bastão
-        </h1>
-        <p class="header-subtitle">
-            Setor de Informática • TJMG • 2026
-        </p>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
 # ==================== ENTRADA RÁPIDA ====================
 st.markdown("---")
 
@@ -1235,20 +1195,8 @@ st_autorefresh(interval=3000, key='auto_rerun_key')
 check_almoco_timeout()
 
 # ==================== HEADER COM USUÁRIO ====================
-# Header com título e card de usuário
-col_title, col_user_header = st.columns([2, 1])
-
-with col_title:
-    st.markdown("""
-    <div style='padding: 1rem 0;'>
-        <h1 style='margin: 0; font-size: 2rem; font-weight: 700; color: #0f172a;'>
-            Controle de Bastão
-        </h1>
-        <p style='margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.95rem;'>
-            Setor de Informática • TJMG • 2026
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+# Card de usuário no canto superior direito
+col_spacer, col_user_header = st.columns([3, 1])
 
 with col_user_header:
     st.markdown(f"""
@@ -1262,7 +1210,7 @@ with col_user_header:
             {st.session_state.usuario_logado}
         </div>
         <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem;'>
-            {'👑 Admin' if st.session_state.is_admin else '👤 Colaborador'}
+            {'Admin' if st.session_state.is_admin else 'Colaborador'}
         </div>
     </div>
     """, unsafe_allow_html=True)
