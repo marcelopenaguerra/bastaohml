@@ -1568,15 +1568,7 @@ with col_principal:
     st.subheader("Próximos da Fila")
     # --- Procure este bloco no app1.py e substitua ---
 
-    if proximo:
-    # Alterado de '###' para markdown simples em negrito
-        st.markdown(f'**1º:** {proximo}') 
-
-    if restante:
-    # Alterado de '####' para st.caption (fonte menor e cor suave)
-        st.caption(f'**2º em diante:** {", ".join(restante)}')
-
-     
+         
     # Exibir mensagem de sucesso se existir
     if st.session_state.get('success_message') and st.session_state.get('success_message_time'):
         elapsed = (now_brasilia() - st.session_state.success_message_time).total_seconds()
