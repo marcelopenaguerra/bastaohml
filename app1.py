@@ -1264,8 +1264,8 @@ with col_user_header:
 
 st.markdown("---")
 
-# Layout principal
-col_principal, col_disponibilidade = st.columns([1.5, 1])
+# Layout principal - mesma proporção do header (3:1)
+col_principal, col_disponibilidade = st.columns([3, 1])
 queue = st.session_state.bastao_queue
 responsavel = next((c for c, s in st.session_state.status_texto.items() if 'Bastão' in s), None)
 
@@ -2024,8 +2024,8 @@ with col_principal:
 
 # Coluna lateral (Disponibilidade)
 with col_disponibilidade:
-    # Espaçamento para alinhar com o card do usuário
-    st.markdown("<div style='height: 155px;'></div>", unsafe_allow_html=True)
+    # Pequeno espaço para alinhar com o topo do card do usuário
+    st.markdown("<div style='height: 0.5rem;'></div>", unsafe_allow_html=True)
     
     st.header('Status dos(as) Colaboradores(as)')
     
