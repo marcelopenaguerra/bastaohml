@@ -338,79 +338,8 @@ def apply_modern_styles():
         font-weight: 500 !important;
     }
     
-    /* ==================== CHECKBOX SUPER VISÍVEL (MacBook) ==================== */
-    /* Container do checkbox com fundo colorido */
-    div[data-testid="stCheckbox"] {
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        padding: 0.5rem !important;
-        min-height: 45px !important;
-        background: #f1f5f9 !important;
-        border-radius: 6px !important;
-        border: 1px solid #e2e8f0 !important;
-    }
-    
-    div[data-testid="stCheckbox"]:hover {
-        background: #e2e8f0 !important;
-        border-color: #cbd5e1 !important;
-    }
-    
-    div[data-testid="stCheckbox"] > label {
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        cursor: pointer !important;
-        padding: 0 !important;
-        margin: 0 !important;
-    }
-    
-    /* Checkbox MUITO MAIOR e mais visível */
-    div[data-testid="stCheckbox"] input[type="checkbox"] {
-        width: 24px !important;
-        height: 24px !important;
-        min-width: 24px !important;
-        min-height: 24px !important;
-        cursor: pointer !important;
-        -webkit-appearance: none !important;
-        appearance: none !important;
-        border: 2.5px solid #94a3b8 !important;
-        border-radius: 5px !important;
-        background: white !important;
-        position: relative !important;
-        transition: all 0.2s ease !important;
-    }
-    
-    /* Checkbox marcado - AZUL FORTE */
-    div[data-testid="stCheckbox"] input[type="checkbox"]:checked {
-        background: #2563eb !important;
-        border-color: #2563eb !important;
-    }
-    
-    /* Checkmark BEM VISÍVEL */
-    div[data-testid="stCheckbox"] input[type="checkbox"]:checked::after {
-        content: "✓" !important;
-        position: absolute !important;
-        color: white !important;
-        font-size: 18px !important;
-        font-weight: 900 !important;
-        left: 4px !important;
-        top: -2px !important;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.2) !important;
-    }
-    
-    /* Hover effect FORTE */
-    div[data-testid="stCheckbox"] input[type="checkbox"]:hover {
-        border-color: #2563eb !important;
-        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15) !important;
-        transform: scale(1.05) !important;
-    }
-    
-    /* Focus effect */
-    div[data-testid="stCheckbox"] input[type="checkbox"]:focus {
-        outline: none !important;
-        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.25) !important;
-    }
+    /* ==================== CHECKBOX PADRÃO (igual aos da fila) ==================== */
+    /* Sem customização - usar aparência nativa */
     
     /* Scrollbar */
     ::-webkit-scrollbar {
