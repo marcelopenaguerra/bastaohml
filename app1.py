@@ -1478,12 +1478,18 @@ with col_principal:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 
-                titulo = f"[{setor}] [{prioridade}] {dem['texto'][:50]}..."
+                # Limpar texto da demanda (remover prefixos duplicados)
+                texto_limpo = dem['texto']
+                # Remover prefixos como "arr[Setor]" se existirem
+                if texto_limpo.startswith('arr['):
+                    texto_limpo = texto_limpo[3:]  # Remove "arr"
+                
+                titulo = f"[{setor}] [{prioridade}] {texto_limpo[:50]}..."
                 
                 with st.expander(titulo):
                     st.write(f"**Setor:** {setor}")
                     st.write(f"**Prioridade:** {prioridade}")
-                    st.write(f"**Descrição:** {dem['texto']}")
+                    st.write(f"**Descrição:** {texto_limpo}")
                     st.caption(f"Criada por: {dem.get('criado_por', 'Admin')}")
                     
                     # Verificar se é direcionada
@@ -1491,27 +1497,31 @@ with col_principal:
                         st.info(f"📌 Esta demanda foi direcionada especificamente para você!")
                     
                     if st.button(f"Aderir a esta demanda", key=f"aderir_dem_{dem['id']}", use_container_width=True):
+                        # CRÍTICO: Pegar colaborador logado, NÃO o responsável atual
+                        colaborador_logado = st.session_state.usuario_logado
+                        
                         # Entrar na demanda automaticamente
-                        atividade_desc = f"[{setor}] {dem['texto'][:100]}"
+                        atividade_desc = f"[{setor}] {texto_limpo[:100]}"
                         
                         # Registrar início
-                        st.session_state.demanda_start_times[responsavel] = now_brasilia()
+                        st.session_state.demanda_start_times[colaborador_logado] = now_brasilia()
                         
                         # Atualizar status
-                        st.session_state.status_texto[responsavel] = f"Atividade: {atividade_desc}"
+                        st.session_state.status_texto[colaborador_logado] = f"Atividade: {atividade_desc}"
                         
                         # Sair da fila
-                        if responsavel in st.session_state.bastao_queue:
-                            st.session_state.bastao_queue.remove(responsavel)
-                        st.session_state[f'check_{responsavel}'] = False
+                        if colaborador_logado in st.session_state.bastao_queue:
+                            st.session_state.bastao_queue.remove(colaborador_logado)
+                        st.session_state[f'check_{colaborador_logado}'] = False
                         
                         # Passar bastão
                         check_and_assume_baton()
                         
-                        # Marcar demanda como inativa se foi direcionada
-                        if dem.get('direcionada_para'):
-                            dem['ativa'] = False
-                            save_admin_data()
+                        # CRÍTICO: Marcar demanda como inativa (já foi assumida)
+                        dem['ativa'] = False
+                        dem['assumida_por'] = colaborador_logado
+                        dem['assumida_em'] = now_brasilia().isoformat()
+                        save_admin_data()
                         
                         save_state()
                         st.success(f"{responsavel} aderiu à demanda!")
