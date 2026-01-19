@@ -388,7 +388,7 @@ Este projeto está sob a licença MIT.
 
 <div align="center">
 
-**Desenvolvido com ❤️ para a equipe de Informática TJMG**
+**Desenvolvido para a equipe de Informática TJMG**
 
 *Sistema de Controle de Bastão v1.0.0*
 
