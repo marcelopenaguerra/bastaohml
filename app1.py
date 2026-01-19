@@ -1566,9 +1566,7 @@ with col_principal:
     
     st.markdown("")
     st.subheader("Próximos da Fila")
-    # --- Procure este bloco no app1.py e substitua ---
-
-         
+        
     # Exibir mensagem de sucesso se existir
     if st.session_state.get('success_message') and st.session_state.get('success_message_time'):
         elapsed = (now_brasilia() - st.session_state.success_message_time).total_seconds()
@@ -1579,15 +1577,9 @@ with col_principal:
             st.session_state.success_message_time = None
     
     if proximo:
-        st.markdown(f'**1º:** {proximo}')      
+        st.markdown(f'***1º:*** {proximo}')      
     if restante:
         st.caption(f'**2º em diante:** {", ".join(restante)}')
-
-
-
-    if restante:
-        st.caption(f'**2º em diante:** {", ".join(restante)}') 
-
     if not proximo and not restante:
         if responsavel:
             st.info('ℹ️ Apenas o responsável atual é elegível.')
