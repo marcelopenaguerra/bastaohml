@@ -1476,12 +1476,18 @@ with col_principal:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 
-                # Limpar QUALQUER "arr" do início do texto
-                texto_limpo = dem['texto']
-                # Remove qualquer coisa antes do primeiro colchete [
-                if '[' in texto_limpo and not texto_limpo.startswith('['):
-                    # Ex: ".arr[Geral] texto" → "[Geral] texto"
-                    texto_limpo = texto_limpo[texto_limpo.index('['):]
+                # Limpeza AGRESSIVA: remover tudo antes do primeiro [
+                texto_limpo = dem['texto'].strip()
+                
+                # Se tem [ e NÃO começa com [, corta tudo antes
+                if '[' in texto_limpo:
+                    primeiro_colchete = texto_limpo.index('[')
+                    if primeiro_colchete > 0:
+                        texto_limpo = texto_limpo[primeiro_colchete:]
+                
+                # Remover [Setor] e [Prioridade] duplicados do início
+                texto_limpo = texto_limpo.replace(f'[{setor}]', '', 1).strip()
+                texto_limpo = texto_limpo.replace(f'[{prioridade}]', '', 1).strip()
                 
                 titulo = f"[{setor}] [{prioridade}] {texto_limpo[:50]}..."
                 
@@ -1602,6 +1608,8 @@ with col_principal:
     
     # Atualizar
     if st.button('Atualizar', use_container_width=True):
+        # Recarregar APENAS demandas públicas
+        load_admin_data()
         st.rerun()
     
     # Menu de Atividades
