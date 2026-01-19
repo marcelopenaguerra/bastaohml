@@ -1577,7 +1577,7 @@ with col_principal:
             st.session_state.success_message_time = None
     
     if proximo:
-        st.markdown(f'***1º:*** {proximo}')      
+        st.markdown(f'**1º:** {proximo}')      
     if restante:
         st.caption(f'**2º em diante:** {", ".join(restante)}')
     if not proximo and not restante:
