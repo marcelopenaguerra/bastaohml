@@ -1579,9 +1579,15 @@ with col_principal:
             st.session_state.success_message_time = None
     
     if proximo:
-        st.markdown(f'### 1º: **{proximo}**')
+        st.markdown(f'**1º:** {proximo}')      
     if restante:
-        st.markdown(f'#### 2º em diante: {", ".join(restante)}')
+        st.caption(f'**2º em diante:** {", ".join(restante)}')
+
+
+
+    if restante:
+        st.caption(f'**2º em diante:** {", ".join(restante)}') 
+
     if not proximo and not restante:
         if responsavel:
             st.info('ℹ️ Apenas o responsável atual é elegível.')
