@@ -1624,11 +1624,9 @@ with col_principal:
         ]
         
         if demandas_disponiveis:
-            st.success(f"✅ {len(demandas_disponiveis)} demanda(s) disponível(is)!")
+            st.toast(f"✅ {len(demandas_disponiveis)} demanda(s) disponível(is)!", icon="✅")
         else:
-            st.info("ℹ️ Nenhuma demanda cadastrada no momento")
-        
-        st.rerun()
+            st.toast("ℹ️ Nenhuma demanda cadastrada no momento", icon="ℹ️")
     
     # Menu de Atividades
     if st.session_state.active_view == 'menu_atividades':
