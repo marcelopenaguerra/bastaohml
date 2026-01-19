@@ -34,7 +34,7 @@ def now_brasilia():
 # ==================== FORÇAR LIGHT MODE ====================
 st.set_page_config(
     page_title="Controle de Bastão - Informática",
-    page_icon="🥂",
+    page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
@@ -98,8 +98,8 @@ REG_CANAL_OPCOES = ["Presencial", "Telefone", "Email", "Whatsapp", "Outros"]
 REG_DESFECHO_OPCOES = ["Resolvido - Informática", "Escalonado"]
 
 
-# Emoji do Bastão
-BASTAO_EMOJI = "🥂"
+# Emoji do Bastão (removido - sem emoji)
+BASTAO_EMOJI = ""
 
 # ============================================
 # FUNÇÕES AUXILIARES
@@ -1142,7 +1142,7 @@ def toggle_view(view_name):
 # INTERFACE PRINCIPAL
 # ============================================
 
-st.set_page_config(page_title="Controle Bastão Informática 2026", layout="wide", page_icon="🥂")
+st.set_page_config(page_title="Controle Bastão Informática 2026", layout="wide", page_icon="🎯")
 # ==================== INICIALIZAÇÃO ====================
 # Banco já foi inicializado no topo (antes de carregar COLABORADORES)
 
@@ -2096,7 +2096,7 @@ with col_disponibilidade:
                 extra_info += " 📋"
             
             if nome == responsavel:
-                display = f'<span style="background-color: #FFD700; color: #000; padding: 2px 6px; border-radius: 5px; font-weight: bold;">🥂 {nome}</span>'
+                display = f'<span style="background-color: #FFD700; color: #000; padding: 2px 6px; border-radius: 5px; font-weight: bold;">{nome}</span>'
             else:
                 display = f'**{nome}**{extra_info} :blue-background[Aguardando]'
             col_nome.markdown(display, unsafe_allow_html=True)
