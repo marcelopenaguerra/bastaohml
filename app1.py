@@ -1567,13 +1567,13 @@ with col_principal:
     st.markdown("")
     # --- Procure este bloco no app1.py e substitua ---
 
-st.subheader("Próximos da Fila")
+    st.subheader("Próximos da Fila")
 
-if proximo:
+    if proximo:
     # Alterado de '###' para markdown simples em negrito
     st.markdown(f'**1º:** {proximo}') 
 
-if restante:
+    if restante:
     # Alterado de '####' para st.caption (fonte menor e cor suave)
     st.caption(f'**2º em diante:** {", ".join(restante)}')
     
