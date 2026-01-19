@@ -1576,10 +1576,7 @@ with col_principal:
     # Alterado de '####' para st.caption (fonte menor e cor suave)
         st.caption(f'**2º em diante:** {", ".join(restante)}')
 
-    if restante:
-    # Alterado de '####' para st.caption (fonte menor e cor suave)
-        st.caption(f'**2º em diante:** {", ".join(restante)}')
-    
+     
     # Exibir mensagem de sucesso se existir
     if st.session_state.get('success_message') and st.session_state.get('success_message_time'):
         elapsed = (now_brasilia() - st.session_state.success_message_time).total_seconds()
