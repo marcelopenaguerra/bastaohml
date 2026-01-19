@@ -1161,25 +1161,34 @@ SharedState.sync_to_session_state()
 
 # PROBLEMA 7: Adicionar automaticamente na fila ao fazer login
 # MAS NÃO adicionar se está em status bloqueante (Almoço, Ausente, Saída, Atividade)
+# IMPORTANTE: Só executa se for primeira vez (não executar a cada rerun)
 usuario_atual = st.session_state.usuario_logado
 
-# Verificar se está em status bloqueante
-status_atual = st.session_state.status_texto.get(usuario_atual, '')
-statuses_bloqueantes = ['Almoço', 'Ausente', 'Saída rápida', 'Atividade:']
-esta_bloqueado = any(status in status_atual for status in statuses_bloqueantes)
+# Verificar se já processamos a entrada na fila deste usuário nesta sessão
+if 'usuario_ja_processado' not in st.session_state:
+    st.session_state.usuario_ja_processado = False
 
-# Só adiciona na fila se:
-# 1. Não está na fila ainda
-# 2. NÃO está em status bloqueante
-if usuario_atual not in st.session_state.bastao_queue and not esta_bloqueado:
-    st.session_state.bastao_queue.append(usuario_atual)
-    st.session_state[f'check_{usuario_atual}'] = True
-    if st.session_state.status_texto.get(usuario_atual) == 'Indisponível':
-        st.session_state.status_texto[usuario_atual] = ''
+if not st.session_state.usuario_ja_processado:
+    # Verificar se está em status bloqueante
+    status_atual = st.session_state.status_texto.get(usuario_atual, '')
+    statuses_bloqueantes = ['Almoço', 'Ausente', 'Saída rápida', 'Atividade:']
+    esta_bloqueado = any(status in status_atual for status in statuses_bloqueantes)
     
-    # CRÍTICO: Verificar se deve pegar bastão automaticamente
-    check_and_assume_baton()
-    save_state()
+    # Só adiciona na fila se:
+    # 1. Não está na fila ainda
+    # 2. NÃO está em status bloqueante
+    if usuario_atual not in st.session_state.bastao_queue and not esta_bloqueado:
+        st.session_state.bastao_queue.append(usuario_atual)
+        st.session_state[f'check_{usuario_atual}'] = True
+        if st.session_state.status_texto.get(usuario_atual) == 'Indisponível':
+            st.session_state.status_texto[usuario_atual] = ''
+        
+        # CRÍTICO: Verificar se deve pegar bastão automaticamente
+        check_and_assume_baton()
+        save_state()
+    
+    # Marcar que já processamos este usuário
+    st.session_state.usuario_ja_processado = True
 
 st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
 
@@ -1605,8 +1614,6 @@ with col_principal:
     
     # Atualizar
     if st.button('Atualizar', use_container_width=True):
-        # Recarregar demandas públicas do disco
-        load_admin_data()
         st.rerun()
     
     # Menu de Atividades
