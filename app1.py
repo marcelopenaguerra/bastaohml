@@ -1154,8 +1154,10 @@ apply_modern_styles()
 verificar_autenticacao()  # Se não logado, mostra tela de login e para
 
 # ==================== SINCRONIZAÇÃO DE ESTADO ====================
-# SEMPRE carregar estado do disco para sincronizar entre PCs
-SharedState.sync_to_session_state()
+# Carregar estado do disco APENAS na primeira vez que loga
+if 'estado_inicial_carregado' not in st.session_state:
+    SharedState.sync_to_session_state()
+    st.session_state.estado_inicial_carregado = True
 
 # A partir daqui, usuário está autenticado e tem estado sincronizado
 
@@ -1476,18 +1478,18 @@ with col_principal:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 
-                # Limpeza AGRESSIVA: remover tudo antes do primeiro [
+                # Limpeza BRUTAL do texto
                 texto_limpo = dem['texto'].strip()
                 
-                # Se tem [ e NÃO começa com [, corta tudo antes
-                if '[' in texto_limpo:
-                    primeiro_colchete = texto_limpo.index('[')
-                    if primeiro_colchete > 0:
-                        texto_limpo = texto_limpo[primeiro_colchete:]
+                # Remove tudo que parecer lixo no início (arr, _arl, .arr, etc)
+                import re
+                # Remove qualquer combinação de pontos, underscores, letras seguidas de [
+                texto_limpo = re.sub(r'^[._]*[a-z]*\[', '[', texto_limpo)
                 
-                # Remover [Setor] e [Prioridade] duplicados do início
-                texto_limpo = texto_limpo.replace(f'[{setor}]', '', 1).strip()
-                texto_limpo = texto_limpo.replace(f'[{prioridade}]', '', 1).strip()
+                # Se ainda tem [ no início, remove [Setor] e [Prioridade] duplicados
+                if texto_limpo.startswith('['):
+                    texto_limpo = texto_limpo.replace(f'[{setor}]', '', 1).strip()
+                    texto_limpo = texto_limpo.replace(f'[{prioridade}]', '', 1).strip()
                 
                 titulo = f"[{setor}] [{prioridade}] {texto_limpo[:50]}..."
                 
@@ -1608,8 +1610,24 @@ with col_principal:
     
     # Atualizar
     if st.button('Atualizar', use_container_width=True):
-        # Recarregar APENAS demandas públicas
+        # Recarregar APENAS demandas públicas do disco
         load_admin_data()
+        
+        # Verificar se tem demandas disponíveis
+        usuario_logado = st.session_state.usuario_logado
+        demandas_disponiveis = [
+            d for d in st.session_state.get('demandas_publicas', [])
+            if d.get('ativa', True) and (
+                d.get('direcionada_para') is None or
+                d.get('direcionada_para') == usuario_logado
+            )
+        ]
+        
+        if demandas_disponiveis:
+            st.success(f"✅ {len(demandas_disponiveis)} demanda(s) disponível(is)!")
+        else:
+            st.info("ℹ️ Nenhuma demanda cadastrada no momento")
+        
         st.rerun()
     
     # Menu de Atividades
