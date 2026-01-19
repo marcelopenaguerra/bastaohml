@@ -1456,12 +1456,13 @@ with col_principal:
             """, unsafe_allow_html=True)
         
         # ========== DEMANDAS PÚBLICAS PISCANDO (ITEM 10) ==========
-        # Filtrar apenas demandas não direcionadas ou direcionadas para o responsável atual
+        # CRÍTICO: Filtrar por usuario_logado, NÃO por quem tem o bastão
+        usuario_logado = st.session_state.usuario_logado
         demandas_ativas = [
             d for d in st.session_state.get('demandas_publicas', []) 
             if d.get('ativa', True) and (
                 d.get('direcionada_para') is None or 
-                d.get('direcionada_para') == responsavel
+                d.get('direcionada_para') == usuario_logado
             )
         ]
         
@@ -1478,11 +1479,18 @@ with col_principal:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 
-                # Limpar texto da demanda (remover prefixos duplicados)
-                texto_limpo = dem['texto']
-                # Remover prefixos como "arr[Setor]" se existirem
-                if texto_limpo.startswith('arr['):
-                    texto_limpo = texto_limpo[3:]  # Remove "arr"
+                # Limpar texto da demanda (remover prefixos duplicados e "arr")
+                texto_limpo = dem['texto'].strip()
+                
+                # Remover todas as variações de "arr" no início
+                while texto_limpo.startswith(('arr[', 'arr', '.arr', '_arr')):
+                    if texto_limpo.startswith('arr['):
+                        texto_limpo = texto_limpo[3:]  # Remove "arr"
+                    elif texto_limpo.startswith(('.arr', '_arr')):
+                        texto_limpo = texto_limpo[4:]  # Remove ".arr" ou "_arr"
+                    elif texto_limpo.startswith('arr'):
+                        texto_limpo = texto_limpo[3:]  # Remove "arr"
+                    texto_limpo = texto_limpo.strip()
                 
                 titulo = f"[{setor}] [{prioridade}] {texto_limpo[:50]}..."
                 
@@ -1961,9 +1969,22 @@ with col_principal:
                             if 'demandas_publicas' not in st.session_state:
                                 st.session_state.demandas_publicas = []
                             
+                            # Limpar texto da demanda (remover prefixos indesejados e "arr")
+                            texto_limpo = nova_demanda_texto.strip()
+                            
+                            # Remover todas as variações de "arr" no início
+                            while texto_limpo.startswith(('arr[', 'arr', '.arr', '_arr')):
+                                if texto_limpo.startswith('arr['):
+                                    texto_limpo = texto_limpo[3:]
+                                elif texto_limpo.startswith(('.arr', '_arr')):
+                                    texto_limpo = texto_limpo[4:]
+                                elif texto_limpo.startswith('arr'):
+                                    texto_limpo = texto_limpo[3:]
+                                texto_limpo = texto_limpo.strip()
+                            
                             demanda_obj = {
                                 'id': len(st.session_state.demandas_publicas) + 1,
-                                'texto': nova_demanda_texto,
+                                'texto': texto_limpo,
                                 'prioridade': prioridade,
                                 'setor': setor,
                                 'criado_em': now_brasilia().isoformat(),
@@ -1976,7 +1997,7 @@ with col_principal:
                             
                             # Se direcionada, atribuir automaticamente
                             if colaborador_direcionado:
-                                atividade_desc = f"[{setor}] {nova_demanda_texto[:100]}"
+                                atividade_desc = f"[{setor}] {texto_limpo[:100]}"
                                 st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
                                 st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
                                 
