@@ -1605,6 +1605,8 @@ with col_principal:
     
     # Atualizar
     if st.button('Atualizar', use_container_width=True):
+        # Recarregar demandas públicas do disco
+        load_admin_data()
         st.rerun()
     
     # Menu de Atividades
