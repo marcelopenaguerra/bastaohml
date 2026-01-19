@@ -1194,7 +1194,43 @@ st_autorefresh(interval=3000, key='auto_rerun_key')
 # Verificar timeout de almoço (1 hora)
 check_almoco_timeout()
 
-# ==================== HEADER COM USUÁRIO ====================
+# ==================== HEADER ====================
+# Título centralizado no topo
+st.markdown("""
+<style>
+.header-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    border-bottom: 3px solid #2563eb;
+}
+
+.header-title {
+    color: #0f172a;
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.header-subtitle {
+    color: #64748b;
+    margin: 0.5rem 0 0 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    text-align: center;
+}
+</style>
+
+<div class="header-card">
+    <h1 class="header-title">Controle de Bastão</h1>
+    <p class="header-subtitle">Setor de Informática • TJMG • 2026</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ==================== CARD DE USUÁRIO ====================
 # Card de usuário no canto superior direito
 col_spacer, col_user_header = st.columns([3, 1])
 
