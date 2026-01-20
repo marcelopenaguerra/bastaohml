@@ -417,7 +417,7 @@ def apply_modern_styles():
         font-size: 1rem;
     }
     
-    /* Checkbox - FORÇAR VISÍVEL */
+    /* Checkbox - VISÍVEL NO WINDOWS com fundo */
     .stCheckbox {
         font-size: 0.875rem !important;
     }
@@ -425,6 +425,22 @@ def apply_modern_styles():
     .stCheckbox label,
     .stCheckbox span {
         color: #0f172a !important;
+    }
+    
+    /* CRÍTICO: Checkbox VISÍVEL no Windows */
+    input[type="checkbox"] {
+        width: 20px !important;
+        height: 20px !important;
+        cursor: pointer !important;
+        accent-color: #2563eb !important;
+        background-color: #f1f5f9 !important;
+        border: 2px solid #cbd5e1 !important;
+        border-radius: 4px !important;
+    }
+    
+    input[type="checkbox"]:checked {
+        background-color: #2563eb !important;
+        border-color: #2563eb !important;
     }
     
     /* Caption - FORÇAR CINZA ESCURO */
@@ -2130,8 +2146,9 @@ with col_disponibilidade:
         elif status == 'Saída rápida':
             ui_lists['saida'].append(nome)
         elif status == 'Indisponível':
+            # Indisponível vai para AUSENTE
             if nome not in st.session_state.bastao_queue:
-                ui_lists['indisponivel'].append(nome)
+                ui_lists['ausente'].append(nome)
         
         if 'Atividade:' in status:
             match = re.search(r'Atividade: (.*)', status)
@@ -2232,7 +2249,6 @@ with col_disponibilidade:
     render_section_simples('Almoço', '🍽️', ui_lists['almoco'], 'red')
     render_section_simples('Saída rápida', '🚶', ui_lists['saida'], 'red')
     render_section_simples('Ausente', '👤', ui_lists['ausente'], 'violet')
-    render_section_simples('Indisponível', '❌', ui_lists['indisponivel'], 'grey')
 
 # Footer
 st.markdown("---")
