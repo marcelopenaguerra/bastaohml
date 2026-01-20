@@ -174,4 +174,9 @@ def fazer_logout():
     st.session_state.is_admin = False
     st.session_state.user_id = None
     st.session_state.precisa_trocar_senha = False
+    
+    # Resetar flag de entrada na fila
+    if 'ja_processou_entrada_fila' in st.session_state:
+        st.session_state.ja_processou_entrada_fila = False
+    
     st.rerun()
