@@ -92,7 +92,7 @@ def get_colaboradores():
 COLABORADORES = get_colaboradores()
 
 # --- Constantes de Opções ---
-REG_USUARIO_OPCOES = ["Gabinete", "Cartório", "Externo"]
+REG_USUARIO_OPCOES = ["Cartório", "Externo"]
 REG_SISTEMA_OPCOES = ["Conveniados", "Outros", "Eproc", "Themis", "JPE", "SIAP"]
 REG_CANAL_OPCOES = ["Presencial", "Telefone", "Email", "Whatsapp", "Outros"]
 REG_DESFECHO_OPCOES = ["Resolvido - Informática", "Escalonado"]
@@ -1162,23 +1162,26 @@ if 'estado_inicial_carregado' not in st.session_state:
 # A partir daqui, usuário está autenticado e tem estado sincronizado
 
 # Adicionar automaticamente na fila ao fazer login (se não estiver)
+# CRÍTICO: ADMIN NÃO ENTRA NA FILA NUNCA
 usuario_atual = st.session_state.usuario_logado
+is_admin = st.session_state.get('is_admin', False)
 
-# Verificar se está em status bloqueante
-status_atual = st.session_state.status_texto.get(usuario_atual, '')
-statuses_bloqueantes = ['Almoço', 'Ausente', 'Saída rápida', 'Atividade:']
-esta_bloqueado = any(status in status_atual for status in statuses_bloqueantes)
-
-# Só adiciona se NÃO está na fila E NÃO está bloqueado
-# IMPORTANTE: A verificação "not in bastao_queue" JÁ impede duplicatas
-if usuario_atual not in st.session_state.bastao_queue and not esta_bloqueado:
-    st.session_state.bastao_queue.append(usuario_atual)
-    st.session_state[f'check_{usuario_atual}'] = True
-    if st.session_state.status_texto.get(usuario_atual) == 'Indisponível':
-        st.session_state.status_texto[usuario_atual] = ''
+# ADMIN não entra na fila
+if not is_admin:
+    # Verificar se está em status bloqueante
+    status_atual = st.session_state.status_texto.get(usuario_atual, '')
+    statuses_bloqueantes = ['Almoço', 'Ausente', 'Saída rápida', 'Atividade:']
+    esta_bloqueado = any(status in status_atual for status in statuses_bloqueantes)
     
-    check_and_assume_baton()
-    save_state()
+    # Só adiciona se NÃO está na fila e NÃO está bloqueado
+    if usuario_atual not in st.session_state.bastao_queue and not esta_bloqueado:
+        st.session_state.bastao_queue.append(usuario_atual)
+        st.session_state[f'check_{usuario_atual}'] = True
+        if st.session_state.status_texto.get(usuario_atual) == 'Indisponível':
+            st.session_state.status_texto[usuario_atual] = ''
+        
+        check_and_assume_baton()
+        save_state()
 
 st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
 
@@ -1186,9 +1189,7 @@ st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
 st.markdown("---")
 
 
-# Auto-refresh
-# Auto-refresh a cada 3 segundos para sincronização em tempo real
-st_autorefresh(interval=3000, key='auto_rerun_key')
+# Auto-refresh REMOVIDO - atualização apenas manual via botão Atualizar
 
 # Verificar timeout de almoço (1 hora)
 check_almoco_timeout()
@@ -1595,7 +1596,8 @@ with col_principal:
     
     # Atualizar
     if st.button('Atualizar', use_container_width=True):
-        # Recarregar APENAS demandas públicas do disco
+        # SINCRONIZAR TUDO do disco (fila, status, demandas)
+        SharedState.sync_to_session_state()
         load_admin_data()
         
         # Verificar se tem demandas disponíveis
@@ -1900,7 +1902,7 @@ with col_principal:
                 st.markdown("### Painel Administrativo")
                 st.caption(f"Admin: {st.session_state.usuario_logado}")
                 
-                tab1, tab2, tab3 = st.tabs(["Cadastrar Colaborador", "Gerenciar Demandas", "Banco de Dados"])
+                tab1, tab2, tab3, tab4 = st.tabs(["Cadastrar Colaborador", "Gerenciar Demandas", "Remover Usuário", "Banco de Dados"])
                 
                 # TAB 1: Cadastrar Colaborador
                 with tab1:
@@ -1935,10 +1937,11 @@ with col_principal:
                     col_p1, col_p2 = st.columns(2)
                     
                     with col_p1:
-                        prioridade = st.select_slider("Prioridade:", 
-                                                     options=["Baixa", "Média", "Alta", "Urgente"],
-                                                     value="Média",
-                                                     key="admin_prioridade")
+                        prioridade = st.radio("Prioridade:", 
+                                             options=["Baixa", "Média", "Alta", "Urgente"],
+                                             index=1,
+                                             horizontal=False,
+                                             key="admin_prioridade")
                     
                     with col_p2:
                         setor = st.selectbox("Setor:",
@@ -2035,8 +2038,56 @@ with col_principal:
                     else:
                         st.info("Nenhuma demanda ativa no momento.")
                 
-                # TAB 3: Banco de Dados
+                # TAB 3: Remover Usuário
                 with tab3:
+                    st.markdown("#### Remover Usuário")
+                    st.warning("⚠️ Esta ação é irreversível!")
+                    
+                    from auth_system import listar_usuarios_ativos, remover_usuario
+                    usuarios_disponiveis = [u for u in listar_usuarios_ativos() if u != st.session_state.usuario_logado]
+                    
+                    if usuarios_disponiveis:
+                        usuario_remover = st.selectbox(
+                            "Selecione o usuário para remover:",
+                            options=usuarios_disponiveis,
+                            key="remover_usuario_select"
+                        )
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        
+                        with col_btn1:
+                            if st.button("🗑️ Remover Usuário", type="primary", use_container_width=True):
+                                if remover_usuario(usuario_remover):
+                                    # Remover da fila também
+                                    if usuario_remover in st.session_state.bastao_queue:
+                                        st.session_state.bastao_queue.remove(usuario_remover)
+                                    if usuario_remover in st.session_state.status_texto:
+                                        del st.session_state.status_texto[usuario_remover]
+                                    save_state()
+                                    st.success(f"✅ Usuário {usuario_remover} removido com sucesso!")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Erro ao remover usuário")
+                        
+                        with col_btn2:
+                            if st.button("♻️ Recriar como Admin", use_container_width=True):
+                                # Remover usuário
+                                if remover_usuario(usuario_remover):
+                                    # Recriar como admin
+                                    from auth_system import adicionar_usuario
+                                    if adicionar_usuario(usuario_remover, "admin123", is_admin=True):
+                                        st.success(f"✅ {usuario_remover} recriado como Admin!")
+                                        st.info("🔑 Senha padrão: admin123")
+                                        time.sleep(2)
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Erro ao recriar usuário")
+                    else:
+                        st.info("Nenhum usuário disponível para remover")
+                
+                # TAB 4: Banco de Dados
+                with tab4:
                     st.markdown("#### Gerenciar Banco de Dados")
                     if st.button("Abrir Painel de BD", use_container_width=True):
                         st.session_state.active_view = 'admin_bd'
@@ -2095,10 +2146,15 @@ with col_disponibilidade:
     else:
         for nome in render_order:
             col_nome, col_check = st.columns([0.85, 0.15], vertical_alignment="center")
-            key = f'chk_fila_{nome}'
-            # Usar estado persistido do checkbox
-            is_checked = st.session_state.get(f'check_{nome}', True)
-            col_check.checkbox(' ', key=key, value=is_checked, on_change=toggle_queue, args=(nome,), label_visibility='collapsed')
+            
+            # CRÍTICO: Checkbox apenas para ADMINS
+            if st.session_state.get('is_admin', False):
+                key = f'chk_fila_{nome}'
+                is_checked = st.session_state.get(f'check_{nome}', True)
+                col_check.checkbox(' ', key=key, value=is_checked, on_change=toggle_queue, args=(nome,), label_visibility='collapsed')
+            else:
+                # Colaborador comum não vê checkbox
+                col_check.markdown("")
             
             status_atual = st.session_state.status_texto.get(nome, '')
             extra_info = ""
