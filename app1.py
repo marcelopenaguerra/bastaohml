@@ -1560,17 +1560,18 @@ with col_principal:
             st.session_state.success_message = None
             st.session_state.success_message_time = None
     
+    # Exibir próximo e restante de forma mais organizada
     if proximo:
-        st.markdown(f'### 1º: **{proximo}**')
+        st.markdown(f"**Próximo Bastão:** {proximo}")
+    
     if restante:
-        st.markdown(f'#### 2º em diante: {", ".join(restante)}')
+        st.markdown(f"**Demais na fila:** {', '.join(restante)}")
+    
     if not proximo and not restante:
         if responsavel:
             st.info('ℹ️ Apenas o responsável atual é elegível.')
         else:
             st.info('ℹ️ Ninguém elegível na fila.')
-    elif not restante and proximo:
-        st.markdown("&nbsp;")
     
     st.markdown("")
     # ========== SIDEBAR - AÇÕES RÁPIDAS ==========
