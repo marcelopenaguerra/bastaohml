@@ -1399,54 +1399,45 @@ with col_principal:
         </div>
         """, unsafe_allow_html=True)
         
-        # Métricas em cards separados
-        col_metric1, col_metric2 = st.columns(2)
-        
+        # Métrica de tempo com bastão
         duration = timedelta()
         if st.session_state.bastao_start_time:
             duration = now_brasilia() - st.session_state.bastao_start_time
         
-        with col_metric1:
-            st.markdown(f"""
-            <style>
-            .metric-card {{
-                background: white;
-                border: 1px solid #e2e8f0;
-                padding: 0.875rem;
-                border-radius: 10px;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-            }}
-            
-            .metric-label {{
-                color: #64748b;
-                font-size: 0.8rem;
-                font-weight: 500;
-                margin-bottom: 0.375rem;
-            }}
-            
-            .metric-value {{
-                color: #1e293b;
-                font-size: 1.25rem;
-                font-weight: 700;
-            }}
-            </style>
-            
-            <div class="metric-card">
-                <div class="metric-label">
-                    ⏱️ Tempo com Bastão
-                </div>
-                <div class="metric-value">
-                    {format_time_duration(duration)}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown(f"""
+        <style>
+        .metric-card {{
+            background: white;
+            border: 1px solid #e2e8f0;
+            padding: 0.875rem;
+            border-radius: 10px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }}
         
-        with col_metric2:
-            rodadas = st.session_state.bastao_counts.get(responsavel, 0)
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">
-                           
+        .metric-label {{
+            color: #64748b;
+            font-size: 0.8rem;
+            font-weight: 500;
+            margin-bottom: 0.375rem;
+        }}
+        
+        .metric-value {{
+            color: #1e293b;
+            font-size: 1.25rem;
+            font-weight: 700;
+        }}
+        </style>
+        
+        <div class="metric-card">
+            <div class="metric-label">
+                ⏱️ Tempo com Bastão
+            </div>
+            <div class="metric-value">
+                {format_time_duration(duration)}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
         # ========== DEMANDAS PÚBLICAS PISCANDO (ITEM 10) ==========
         # CRÍTICO: Filtrar por usuario_logado, NÃO por quem tem o bastão
         usuario_logado = st.session_state.usuario_logado
