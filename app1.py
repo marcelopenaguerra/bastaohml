@@ -1205,7 +1205,8 @@ st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
 st.markdown("---")
 
 
-# Auto-refresh REMOVIDO - atualização apenas manual via botão Atualizar
+# Auto-refresh a cada 3 segundos para sincronização em tempo real
+st_autorefresh(interval=3000, key='auto_rerun_key')
 
 # Verificar timeout de almoço (1 hora)
 check_almoco_timeout()
@@ -2212,9 +2213,15 @@ with col_disponibilidade:
                     
                     col_nome.caption(f"🕐 Início: {horario_inicio} | ⏱️ {elapsed_mins} min")
                 
-                # Botão Finalizar (ITEM 1)
-                if col_btn.button("✅", key=f"fim_{nome}_{title}", help="Finalizar"):
-                    finalizar_demanda(nome)
+                # Botão Finalizar (ITEM 1) - apenas próprio colaborador ou admin
+                usuario_logado = st.session_state.usuario_logado
+                is_admin = st.session_state.get('is_admin', False)
+                
+                if nome == usuario_logado or is_admin:
+                    if col_btn.button("✅", key=f"fim_{nome}_{title}", help="Finalizar"):
+                        finalizar_demanda(nome)
+                else:
+                    col_btn.markdown("")  # Não mostra botão para outros
         st.markdown('---')
     
     def render_section_simples(title, icon, names, tag_color):
@@ -2223,8 +2230,16 @@ with col_disponibilidade:
             st.caption(f'Ninguém em {title.lower()}.')
         else:
             for nome in sorted(names):
-                # Proporção 70/30 para dar mais espaço ao checkbox
-                col_nome, col_check = st.columns([0.70, 0.30], vertical_alignment="center")
+                # CRÍTICO: Verificar se é admin ANTES de mostrar checkbox
+                is_admin = st.session_state.get('is_admin', False)
+                
+                if is_admin:
+                    # Admin vê checkbox
+                    col_nome, col_check = st.columns([0.70, 0.30], vertical_alignment="center")
+                else:
+                    # Colaborador não vê checkbox
+                    col_nome = st.container()
+                    
                 key_dummy = f'chk_simples_{title}_{nome}'
                 
                 col_nome.markdown(f'**{nome}**')
@@ -2236,13 +2251,14 @@ with col_disponibilidade:
                         saida_time = datetime.fromisoformat(saida_time)
                     col_nome.caption(f"🕐 Saiu: {saida_time.strftime('%H:%M')}")
                 
-                # Checkbox - estilos globais aplicados via CSS
-                col_check.checkbox('', key=key_dummy, 
-                                 value=(False if title == 'Indisponível' else True),
-                                 on_change=(enter_from_indisponivel if title == 'Indisponível' 
-                                          else leave_specific_status),
-                                 args=((nome,) if title == 'Indisponível' else (nome, title)),
-                                 label_visibility='collapsed')
+                # Checkbox APENAS para admin
+                if is_admin:
+                    col_check.checkbox('', key=key_dummy, 
+                                     value=(False if title == 'Indisponível' else True),
+                                     on_change=(enter_from_indisponivel if title == 'Indisponível' 
+                                              else leave_specific_status),
+                                     args=((nome,) if title == 'Indisponível' else (nome, title)),
+                                     label_visibility='collapsed')
         st.markdown('---')
     
     render_section_detalhada('Em Demanda', '📋', ui_lists['atividade_especifica'], 'orange', 'Atividade')
