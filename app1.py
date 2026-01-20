@@ -1446,14 +1446,7 @@ with col_principal:
             st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">
-                    Rodadas Hoje
-                </div>
-                <div class="metric-value">
-                    {rodadas}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
+                           
         # ========== DEMANDAS PÚBLICAS PISCANDO (ITEM 10) ==========
         # CRÍTICO: Filtrar por usuario_logado, NÃO por quem tem o bastão
         usuario_logado = st.session_state.usuario_logado
