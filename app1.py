@@ -92,7 +92,7 @@ def get_colaboradores():
 COLABORADORES = get_colaboradores()
 
 # --- Constantes de Opções ---
-REG_USUARIO_OPCOES = ["Cartório", "Externo"]
+REG_USUARIO_OPCOES = ["Gabinete", "Cartório", "Externo"]
 REG_SISTEMA_OPCOES = ["Conveniados", "Outros", "Eproc", "Themis", "JPE", "SIAP"]
 REG_CANAL_OPCOES = ["Presencial", "Telefone", "Email", "Whatsapp", "Outros"]
 REG_DESFECHO_OPCOES = ["Resolvido - Informática", "Escalonado"]
