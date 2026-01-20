@@ -1166,24 +1166,31 @@ st.set_page_config(page_title="Controle Bastão Informática 2026", layout="wide
 init_session_state()
 apply_modern_styles()
 
+# ==================== AUTO-REFRESH ====================
+# CRÍTICO: Auto-refresh ANTES de tudo para forçar sincronização
+st_autorefresh(interval=3000, key='auto_rerun_key')
+
 # ==================== VERIFICAÇÃO DE LOGIN ====================
 verificar_autenticacao()  # Se não logado, mostra tela de login e para
 
 # ==================== SINCRONIZAÇÃO DE ESTADO ====================
-# Carregar estado do disco APENAS na primeira vez que loga
-if 'estado_inicial_carregado' not in st.session_state:
-    SharedState.sync_to_session_state()
-    st.session_state.estado_inicial_carregado = True
+# CRÍTICO: Sincronizar SEMPRE do disco para manter guias sincronizadas
+SharedState.sync_to_session_state()
+load_admin_data()  # Carregar demandas públicas também
 
 # A partir daqui, usuário está autenticado e tem estado sincronizado
 
-# Adicionar automaticamente na fila ao fazer login (se não estiver)
+# Adicionar automaticamente na fila ao fazer login (APENAS UMA VEZ)
 # CRÍTICO: ADMIN NÃO ENTRA NA FILA NUNCA
 usuario_atual = st.session_state.usuario_logado
 is_admin = st.session_state.get('is_admin', False)
 
+# Flag de controle - se já processou entrada deste usuário NESTA SESSÃO
+if 'ja_processou_entrada_fila' not in st.session_state:
+    st.session_state.ja_processou_entrada_fila = False
+
 # ADMIN não entra na fila
-if not is_admin:
+if not is_admin and not st.session_state.ja_processou_entrada_fila:
     # Verificar se está em status bloqueante
     status_atual = st.session_state.status_texto.get(usuario_atual, '')
     statuses_bloqueantes = ['Almoço', 'Ausente', 'Saída rápida', 'Atividade:']
@@ -1198,15 +1205,14 @@ if not is_admin:
         
         check_and_assume_baton()
         save_state()
+    
+    # Marcar que já processou (não vai processar de novo até fazer logout)
+    st.session_state.ja_processou_entrada_fila = True
 
 st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
 
 # ==================== ENTRADA RÁPIDA ====================
 st.markdown("---")
-
-
-# Auto-refresh a cada 3 segundos para sincronização em tempo real
-st_autorefresh(interval=3000, key='auto_rerun_key')
 
 # Verificar timeout de almoço (1 hora)
 check_almoco_timeout()
@@ -1611,13 +1617,9 @@ with col_principal:
     
     st.markdown("")
     
-    # Atualizar
+    # Atualizar (REDUNDANTE - auto-refresh já sincroniza, mas deixamos para feedback do usuário)
     if st.button('Atualizar', use_container_width=True):
-        # SINCRONIZAR TUDO do disco (fila, status, demandas)
-        SharedState.sync_to_session_state()
-        load_admin_data()
-        
-        # Verificar se tem demandas disponíveis
+        # Verificar se tem demandas disponíveis (sync já acontece automaticamente)
         usuario_logado = st.session_state.usuario_logado
         demandas_disponiveis = [
             d for d in st.session_state.get('demandas_publicas', [])
