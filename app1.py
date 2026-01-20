@@ -581,6 +581,16 @@ def check_and_assume_baton():
     return changed
 
 def toggle_queue(colaborador):
+    """
+    Alterna entrada/saída da fila via checkbox (APENAS ADMIN pode chamar)
+    PROTEÇÃO: Admin nunca pode ser adicionado na fila
+    """
+    from auth_system import is_usuario_admin
+    
+    # PROTEÇÃO CRÍTICA: Admin nunca entra na fila
+    if is_usuario_admin(colaborador):
+        st.warning("⚠️ Administradores não entram na fila!")
+        return
     
     if colaborador in st.session_state.bastao_queue:
         st.session_state.bastao_queue.remove(colaborador)
@@ -1683,57 +1693,20 @@ with col_principal:
     # Ferramentas
     st.markdown("### Ferramentas")
     
-    # Admins têm mais um botão
+    # Admins têm mais botões
     if st.session_state.is_admin:
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.button("Atendimento", help="Registrar Atendimento", use_container_width=True, on_click=toggle_view, args=("atendimentos",))
-        col2.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
-        col3.button("Relatórios", help="Ver Registros Salvos", use_container_width=True, on_click=toggle_view, args=("relatorios",))
-        col4.button("Admin", help="Painel Administrativo", use_container_width=True, on_click=toggle_view, args=("admin_panel",), type="primary")
-        col5.button("Descanso", help="Jogo e Ranking", use_container_width=True, on_click=toggle_view, args=("descanso",))
-    else:
         col1, col2, col3 = st.columns(3)
-        col1.button("Atendimento", help="Registrar Atendimento", use_container_width=True, on_click=toggle_view, args=("atendimentos",))
-        col2.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
-        col3.button("Descanso", help="Jogo e Ranking", use_container_width=True, on_click=toggle_view, args=("descanso",))
+        col1.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
+        col2.button("Relatórios", help="Ver Registros Salvos", use_container_width=True, on_click=toggle_view, args=("relatorios",))
+        col3.button("Admin", help="Painel Administrativo", use_container_width=True, on_click=toggle_view, args=("admin_panel",), type="primary")
+    else:
+        col1 = st.columns(1)[0]
+        col1.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
     
     # Views das ferramentas
-    if st.session_state.active_view == "atendimentos":
-        with st.container(border=True):
-            st.markdown("### Registro de Atendimento (Local)")
-            at_data = st.date_input("Data:", value=date.today(), format="DD/MM/YYYY", key="at_data")
-            at_usuario = st.selectbox("Usuário:", REG_USUARIO_OPCOES, index=None, placeholder="Selecione...", key="at_user")
-            at_nome_setor = st.text_input("Nome usuário - Setor:", key="at_setor")
-            at_sistema = st.selectbox("Sistema:", REG_SISTEMA_OPCOES, index=None, placeholder="Selecione...", key="at_sys")
-            at_descricao = st.text_input("Descrição:", key="at_desc")
-            at_canal = st.selectbox("Canal:", REG_CANAL_OPCOES, index=None, placeholder="Selecione...", key="at_channel")
-            at_desfecho = st.selectbox("Desfecho:", REG_DESFECHO_OPCOES, index=None, placeholder="Selecione...", key="at_outcome")
-            
-            if st.button("Salvar Registro Localmente", type="primary", use_container_width=True):
-                colaborador = st.session_state.usuario_logado
-                if colaborador and colaborador != "Selecione um nome":
-                    st.success("✅ Atendimento registrado localmente!")
-                    log_entry = {
-                        'timestamp': now_brasilia(),
-                        'colaborador': colaborador,
-                        'data': at_data,
-                        'usuario': at_usuario,
-                        'setor': at_nome_setor,
-                        'sistema': at_sistema,
-                        'descricao': at_descricao,
-                        'canal': at_canal,
-                        'desfecho': at_desfecho
-                    }
-                    st.session_state.daily_logs.append(log_entry)
-                else:
-                    st.error("Selecione um colaborador.")
     
-    
-    elif st.session_state.active_view == "descanso":
-        with st.container(border=True):
-            handle_simon_game()
-    
-    elif st.session_state.active_view == "erro_novidade":
+    # View de Erro/Novidade
+    if st.session_state.active_view == "erro_novidade":
         with st.container(border=True):
             st.markdown("### Bug: Registro de Erro ou Novidade (Local)")
             en_titulo = st.text_input("Título:")
