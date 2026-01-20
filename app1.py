@@ -2200,32 +2200,79 @@ with col_disponibilidade:
                     finalizar_demanda(nome)
         st.markdown('---')
     
-    def render_section_simples(title, icon, names, tag_color):
-        st.subheader(f'{icon} {title} ({len(names)})')
-        if not names:
-            st.caption(f'Ninguém em {title.lower()}.')
-        else:
-            for nome in sorted(names):
-                # Proporção 70/30 para dar mais espaço ao checkbox
-                col_nome, col_check = st.columns([0.70, 0.30], vertical_alignment="center")
-                key_dummy = f'chk_simples_{title}_{nome}'
-                
-                col_nome.markdown(f'**{nome}**')
-                
-                # Mostrar horário de saída para almoço (ITEM 4)
-                if title == 'Almoço' and nome in st.session_state.get('almoco_times', {}):
-                    saida_time = st.session_state.almoco_times[nome]
-                    if isinstance(saida_time, str):
-                        saida_time = datetime.fromisoformat(saida_time)
-                    col_nome.caption(f"🕐 Saiu: {saida_time.strftime('%H:%M')}")
-                
-                # Checkbox - estilos globais aplicados via CSS
-                col_check.checkbox('', key=key_dummy, 
-                                 value=(False if title == 'Indisponível' else True),
-                                 on_change=(enter_from_indisponivel if title == 'Indisponível' 
-                                          else leave_specific_status),
-                                 args=((nome,) if title == 'Indisponível' else (nome, title)),
-                                 label_visibility='collapsed')
+    # ... (manter as importações anteriores)
+
+def render_section_simples(title, icon, names, tag_color):
+    """
+    Versão Corrigida: Adicionado parâmetro 'disabled' baseado no cargo.
+    """
+    st.subheader(f'{icon} {title} ({len(names)})')
+    if not names:
+        st.caption(f'Ninguém em {title.lower()}.')
+    else:
+        # Verificar se o utilizador atual é admin para habilitar a interação
+        eh_admin = st.session_state.get('is_admin', False)
+        
+        for nome in sorted(names):
+            col_nome, col_check = st.columns([0.70, 0.30], vertical_alignment="center")
+            
+            # Chave única para o widget
+            key_dummy = f'chk_simples_{title}_{nome.replace(" ", "_")}'
+            
+            col_nome.markdown(f'**{nome}**')
+            
+            if title == 'Almoço' and nome in st.session_state.get('almoco_times', {}):
+                saida_time = st.session_state.almoco_times[nome]
+                if isinstance(saida_time, str):
+                    saida_time = datetime.fromisoformat(saida_time)
+                col_nome.caption(f"🕐 Saiu: {saida_time.strftime('%H:%M')}")
+            
+            # CORREÇÃO: Adicionado o parâmetro 'disabled'
+            # Se NÃO for admin, o checkbox fica visível mas desabilitado (cinza)
+            col_check.checkbox(
+                '', 
+                key=key_dummy, 
+                value=(False if title == 'Indisponível' else True),
+                on_change=(enter_from_indisponivel if title == 'Indisponível' else leave_specific_status),
+                args=((nome,) if title == 'Indisponível' else (nome, title)),
+                label_visibility='collapsed',
+                disabled=not eh_admin  # <--- LINHA CRUCIAL
+            )
+    st.markdown('---')
+
+# ... (dentro da coluna de disponibilidade na Fila)
+
+# Renderizar fila
+st.subheader(f'✅ Na Fila ({len(ui_lists["fila"])})')
+render_order = [c for c in queue if c in ui_lists["fila"]]
+if not render_order:
+    st.caption('Ninguém na fila.')
+else:
+    eh_admin = st.session_state.get('is_admin', False)
+    for nome in render_order:
+        col_nome, col_check = st.columns([0.85, 0.15], vertical_alignment="center")
+        
+        key = f'chk_fila_{nome.replace(" ", "_")}'
+        is_checked = st.session_state.get(f'check_{nome}', True)
+        
+        # CORREÇÃO: Agora mostramos o checkbox para todos, mas bloqueamos a interação
+        # para quem não for admin, evitando confusão visual de "sumir" o elemento.
+        col_check.checkbox(
+            ' ', 
+            key=key, 
+            value=is_checked, 
+            on_change=toggle_queue, 
+            args=(nome,), 
+            label_visibility='collapsed',
+            disabled=not eh_admin # <--- Bloqueia se não for admin
+        )
+        
+        status_atual = st.session_state.status_texto.get(nome, '')
+        display = f'**{nome}**'
+        if nome == responsavel:
+            display = f'<span style="background-color: #FFD700; color: #000; padding: 2px 6px; border-radius: 5px; font-weight: bold;">{nome}</span>'
+        
+        col_nome.markdown(display, unsafe_allow_html=True)
         st.markdown('---')
     
     render_section_detalhada('Em Demanda', '📋', ui_lists['atividade_especifica'], 'orange', 'Atividade')
