@@ -2085,16 +2085,26 @@ with col_principal:
                             if 'demandas_publicas' not in st.session_state:
                                 st.session_state.demandas_publicas = []
                             
-                            # LIMPEZA AGRESSIVA: Remover TODO lixo do início
+                            # LIMPEZA SUPER AGRESSIVA: Remover TODO lixo
                             texto_limpo = nova_demanda_texto.strip()
                             
-                            # Remover QUALQUER padrão de lixo: arr, .arr, _arr, etc
-                            texto_limpo = re.sub(r'^[._]*a+r+[rl_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
-                            texto_limpo = re.sub(r'^[._a-z]*\[', '[', texto_limpo, flags=re.IGNORECASE)
+                            # Remover QUALQUER prefixo estranho (arr, _ari, .arr, etc)
+                            # Remove tudo antes do conteúdo real
+                            texto_limpo = re.sub(r'^[._]*[a-z]*r[ril_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
+                            texto_limpo = re.sub(r'^[._a-z]+\[', '[', texto_limpo, flags=re.IGNORECASE)
                             
-                            # Se tem [ mas não começa com [, pegar só a partir do [
+                            # Se tem [ mas não começa com [, pegar a partir do [
                             if '[' in texto_limpo and not texto_limpo.startswith('['):
                                 texto_limpo = texto_limpo[texto_limpo.index('['):]
+                            
+                            # Remover TAGS [Geral] [Urgente] etc do texto
+                            # O setor e prioridade já estão salvos separadamente!
+                            texto_limpo = texto_limpo.replace(f'[{setor}]', '').strip()
+                            texto_limpo = texto_limpo.replace(f'[{prioridade}]', '').strip()
+                            
+                            # Remove QUALQUER coisa entre [ ] no início
+                            texto_limpo = re.sub(r'^\[.*?\]\s*', '', texto_limpo).strip()
+                            texto_limpo = re.sub(r'^\[.*?\]\s*', '', texto_limpo).strip()  # Duas vezes caso tenha 2 tags
                             
                             # Remover espaços extras
                             texto_limpo = texto_limpo.strip()
