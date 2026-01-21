@@ -19,6 +19,7 @@ from pathlib import Path
 
 # Sistema de autenticação
 from auth_system import init_database, verificar_login, listar_usuarios_ativos, adicionar_usuario, is_usuario_admin
+from admin.admin_bd_panel import mostrar_painel_admin_bd, adicionar_menu_bd_sidebar
 from login_screen import verificar_autenticacao, mostrar_tela_login, fazer_logout
 
 # Sistema de Estado Compartilhado
