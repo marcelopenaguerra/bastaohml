@@ -1,3 +1,4 @@
+
 # ============================================
 # CONTROLE DE BASTÃO Informática 2026
 # Versão: Completa com Login e Banco de Dados
@@ -19,6 +20,7 @@ from pathlib import Path
 
 # Sistema de autenticação
 from auth_system import init_database, verificar_login, listar_usuarios_ativos, adicionar_usuario, is_usuario_admin
+from login_screen import verificar_autenticacao, mostrar_tela_login, fazer_logout
 
 # Sistema de Estado Compartilhado
 from shared_state import SharedState
