@@ -615,7 +615,7 @@ def toggle_queue(colaborador):
 
 def resetar_bastao():
     """
-    Reseta o sistema - Move TODOS para Ausente de TODAS as listas (APENAS ADMIN)
+    Reseta o sistema - Move TODOS para Ausente (APENAS ADMIN)
     CRÍTICO: Não adiciona admins à lista
     """
     # PROTEÇÃO: Apenas admin pode resetar
@@ -633,28 +633,24 @@ def resetar_bastao():
         if is_usuario_admin(nome):
             continue
         
-        status_atual = st.session_state.status_texto.get(nome, '')
+        # Marcar TODOS como Ausente (exceto admins)
+        pessoas_afetadas.append(nome)
         
-        # Se está em qualquer lista ativa, resetar
-        if (nome in st.session_state.bastao_queue or 
-            status_atual not in ['', 'Indisponível', 'Ausente']):
-            pessoas_afetadas.append(nome)
-            
-            # Marcar como Ausente (sobrescreve tudo)
-            st.session_state.status_texto[nome] = 'Ausente'
-            
-            # Remover da fila
-            if nome in st.session_state.bastao_queue:
-                st.session_state.bastao_queue.remove(nome)
-            
-            # Desmarcar checkbox
-            st.session_state[f'check_{nome}'] = False
-            
-            # Limpar timers
-            if nome in st.session_state.get('almoco_times', {}):
-                del st.session_state.almoco_times[nome]
-            if nome in st.session_state.get('demanda_start_times', {}):
-                del st.session_state.demanda_start_times[nome]
+        # Marcar como Ausente
+        st.session_state.status_texto[nome] = 'Ausente'
+        
+        # Remover da fila se estiver
+        if nome in st.session_state.bastao_queue:
+            st.session_state.bastao_queue.remove(nome)
+        
+        # Desmarcar checkbox
+        st.session_state[f'check_{nome}'] = False
+        
+        # Limpar timers
+        if nome in st.session_state.get('almoco_times', {}):
+            del st.session_state.almoco_times[nome]
+        if nome in st.session_state.get('demanda_start_times', {}):
+            del st.session_state.demanda_start_times[nome]
     
     # Limpar fila completamente
     st.session_state.bastao_queue = []
@@ -664,11 +660,7 @@ def resetar_bastao():
     
     save_state()
     
-    if pessoas_afetadas:
-        st.success(f"✅ Sistema resetado! {len(pessoas_afetadas)} pessoa(s) movida(s) para Ausente.")
-    else:
-        st.info("ℹ️ Sistema resetado! Todos já estavam ausentes/indisponíveis.")
-    
+    st.success(f"✅ Sistema resetado! {len(pessoas_afetadas)} pessoa(s) movida(s) para Ausente.")
     time.sleep(1)
     st.rerun()
 
@@ -2185,19 +2177,9 @@ with col_disponibilidade:
     # CRÍTICO: Filtrar admins de todas as listas
     from auth_system import is_usuario_admin
     
-    # DEBUG: Mostrar para admin quantas pessoas estão sendo processadas
-    if st.session_state.get('is_admin', False):
-        debug_info = []
-    
     for nome in COLABORADORES:
         # PULAR admins - NÃO APARECEM EM NENHUMA LISTA
-        eh_admin = is_usuario_admin(nome)
-        
-        if st.session_state.get('is_admin', False):
-            status_debug = st.session_state.status_texto.get(nome, 'SEM STATUS')
-            debug_info.append(f"{nome}: is_admin={eh_admin}, status={status_debug}")
-        
-        if eh_admin:
+        if is_usuario_admin(nome):
             continue  # Pula para próximo colaborador
         
         # A partir daqui, só processa NÃO-ADMINS
@@ -2351,15 +2333,6 @@ with col_disponibilidade:
     render_section_simples('Almoço', '🍽️', ui_lists['almoco'], 'red')
     render_section_simples('Saída rápida', '🚶', ui_lists['saida'], 'red')
     render_section_simples('Ausente', '👤', ui_lists['ausente'], 'violet')
-    
-    # DEBUG: Mostrar info para admin
-    if st.session_state.get('is_admin', False):
-        with st.expander("🔍 Debug Info (apenas admin vê)"):
-            st.text(f"Total COLABORADORES: {len(COLABORADORES)}")
-            st.text(f"Ausentes na lista: {len(ui_lists['ausente'])}")
-            st.text("---")
-            for info in debug_info:
-                st.text(info)
 
 
 # Footer
