@@ -443,6 +443,45 @@ def apply_modern_styles():
         border-color: #2563eb !important;
     }
     
+    /* CRÍTICO: Radio buttons MUITO VISÍVEIS */
+    input[type="radio"] {
+        width: 20px !important;
+        height: 20px !important;
+        cursor: pointer !important;
+        accent-color: #2563eb !important;
+        margin-right: 8px !important;
+    }
+    
+    /* Radio button labels maiores e mais visíveis */
+    .stRadio > label {
+        font-size: 0.95rem !important;
+        font-weight: 500 !important;
+        color: #0f172a !important;
+        margin-bottom: 0.5rem !important;
+    }
+    
+    .stRadio > div {
+        gap: 0.75rem !important;
+    }
+    
+    .stRadio label[data-baseweb="radio"] {
+        font-size: 0.9rem !important;
+        padding: 0.5rem !important;
+        border-radius: 8px !important;
+        transition: all 0.2s !important;
+        cursor: pointer !important;
+    }
+    
+    .stRadio label[data-baseweb="radio"]:hover {
+        background-color: #f1f5f9 !important;
+    }
+    
+    .stRadio input[type="radio"]:checked + div {
+        background-color: #eff6ff !important;
+        border-left: 3px solid #2563eb !important;
+        padding-left: 8px !important;
+    }
+    
     /* Caption - FORÇAR CINZA ESCURO */
     .stCaption,
     [data-testid="stCaptionContainer"] {
