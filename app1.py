@@ -2000,18 +2000,28 @@ with col_principal:
                     
                     colaborador_direcionado = None
                     if direcionar:
+                        # Mostrar TODOS os colaboradores (exceto admins)
+                        from auth_system import is_usuario_admin
                         colaboradores_disponiveis = [c for c in COLABORADORES 
-                                                    if c in st.session_state.bastao_queue]
+                                                    if not is_usuario_admin(c)]
                         
                         if colaboradores_disponiveis:
                             colaborador_direcionado = st.selectbox(
                                 "Selecione o colaborador:",
-                                options=colaboradores_disponiveis,
+                                options=sorted(colaboradores_disponiveis),
                                 key="admin_colab_direcionado"
                             )
-                            st.info(f"A demanda será direcionada para {colaborador_direcionado}")
+                            
+                            # Mostrar status do colaborador selecionado
+                            status_colab = st.session_state.status_texto.get(colaborador_direcionado, 'Sem status')
+                            if colaborador_direcionado in st.session_state.bastao_queue:
+                                st.info(f"✅ {colaborador_direcionado} está na fila")
+                            elif status_colab == 'Ausente':
+                                st.warning(f"⚠️ {colaborador_direcionado} está Ausente (receberá demanda mesmo assim)")
+                            else:
+                                st.info(f"ℹ️ {colaborador_direcionado} - Status: {status_colab}")
                         else:
-                            st.warning("Nenhum colaborador disponível na fila.")
+                            st.error("❌ Nenhum colaborador cadastrado no sistema.")
                             direcionar = False
                     
                     if st.button("Publicar Demanda", key="btn_pub_demanda", type="primary"):
