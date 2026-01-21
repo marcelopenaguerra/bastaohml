@@ -2154,9 +2154,29 @@ with col_principal:
                                 col1, col2 = st.columns([0.9, 0.1])
                                 
                                 setor_tag = dem.get('setor', 'Geral')
+                                prioridade_tag = dem.get('prioridade', 'Média')
                                 direcionado = dem.get('direcionada_para')
                                 
-                                texto_exibicao = f"[{setor_tag}] {dem['texto'][:50]}..."
+                                # LIMPEZA DO TEXTO
+                                texto_limpo = dem['texto'].strip()
+                                
+                                # Remove prefixos estranhos
+                                texto_limpo = re.sub(r'^[._]*[a-z]*r[ril_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
+                                texto_limpo = re.sub(r'^[._a-z]+\[', '[', texto_limpo, flags=re.IGNORECASE)
+                                
+                                # Se tem [ mas não começa, pegar do [
+                                if '[' in texto_limpo and not texto_limpo.startswith('['):
+                                    texto_limpo = texto_limpo[texto_limpo.index('['):]
+                                
+                                # Remove tags duplicadas
+                                texto_limpo = texto_limpo.replace(f'[{setor_tag}]', '').strip()
+                                texto_limpo = texto_limpo.replace(f'[{prioridade_tag}]', '').strip()
+                                
+                                # Remove QUALQUER [tag] no início
+                                texto_limpo = re.sub(r'^\[.*?\]\s*', '', texto_limpo).strip()
+                                texto_limpo = re.sub(r'^\[.*?\]\s*', '', texto_limpo).strip()
+                                
+                                texto_exibicao = f"[{setor_tag}] {texto_limpo[:50]}..."
                                 if direcionado:
                                     texto_exibicao = f"→ {direcionado}: " + texto_exibicao
                                 
@@ -2275,7 +2295,29 @@ with col_disponibilidade:
         if 'Atividade:' in status:
             match = re.search(r'Atividade: (.*)', status)
             if match:
-                ui_lists['atividade_especifica'].append((nome, match.group(1).split('|')[0].strip()))
+                desc_atividade = match.group(1).split('|')[0].strip()
+                
+                # LIMPEZA da descrição de atividade
+                desc_limpa = desc_atividade
+                
+                # Remove prefixos estranhos
+                desc_limpa = re.sub(r'^[._]*[a-z]*r[ril_]*\[', '[', desc_limpa, flags=re.IGNORECASE)
+                desc_limpa = re.sub(r'^[._a-z]+\[', '[', desc_limpa, flags=re.IGNORECASE)
+                
+                # Se tem [ mas não começa, pegar do [
+                if '[' in desc_limpa and not desc_limpa.startswith('['):
+                    desc_limpa = desc_limpa[desc_limpa.index('['):]
+                
+                # Remove QUALQUER [tag] no início (uma vez só, mantém [Setor])
+                # Mas remove duplicatas
+                partes = desc_limpa.split(']', 1)
+                if len(partes) == 2 and partes[0].startswith('['):
+                    # Mantém só [Setor] primeira tag
+                    desc_limpa = partes[0] + ']' + partes[1]
+                
+                desc_limpa = desc_limpa.strip()
+                
+                ui_lists['atividade_especifica'].append((nome, desc_limpa))
     
     # Renderizar fila
     st.subheader(f'✅ Na Fila ({len(ui_lists["fila"])})')
