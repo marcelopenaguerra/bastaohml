@@ -615,34 +615,60 @@ def toggle_queue(colaborador):
 
 def resetar_bastao():
     """
-    Reseta o bastão - Remove TODOS da fila (APENAS ADMIN)
-    CRÍTICO: Verificação de segurança
+    Reseta o sistema - Move TODOS para Ausente de TODAS as listas (APENAS ADMIN)
+    CRÍTICO: Não adiciona admins à lista
     """
     # PROTEÇÃO: Apenas admin pode resetar
     if not st.session_state.get('is_admin', False):
-        st.error("❌ Apenas administradores podem resetar o bastão!")
+        st.error("❌ Apenas administradores podem resetar o sistema!")
         return
+    
+    from auth_system import listar_usuarios_ativos, is_usuario_admin
+    todos_usuarios = listar_usuarios_ativos()
+    
+    pessoas_afetadas = []
+    
+    for nome in todos_usuarios:
+        # Pular admins
+        if is_usuario_admin(nome):
+            continue
+        
+        status_atual = st.session_state.status_texto.get(nome, '')
+        
+        # Se está em qualquer lista ativa, resetar
+        if (nome in st.session_state.bastao_queue or 
+            status_atual not in ['', 'Indisponível', 'Ausente']):
+            pessoas_afetadas.append(nome)
+            
+            # Marcar como Ausente (sobrescreve tudo)
+            st.session_state.status_texto[nome] = 'Ausente'
+            
+            # Remover da fila
+            if nome in st.session_state.bastao_queue:
+                st.session_state.bastao_queue.remove(nome)
+            
+            # Desmarcar checkbox
+            st.session_state[f'check_{nome}'] = False
+            
+            # Limpar timers
+            if nome in st.session_state.get('almoco_times', {}):
+                del st.session_state.almoco_times[nome]
+            if nome in st.session_state.get('demanda_start_times', {}):
+                del st.session_state.demanda_start_times[nome]
     
     # Limpar fila completamente
     st.session_state.bastao_queue = []
-    
-    # Limpar checkboxes de todos
-    from auth_system import listar_usuarios_ativos
-    for nome in listar_usuarios_ativos():
-        st.session_state[f'check_{nome}'] = False
-    
-    # Remover bastão de quem tem
-    for colaborador in st.session_state.status_texto:
-        status = st.session_state.status_texto.get(colaborador, '')
-        if 'Bastão' in status:
-            # Remove apenas "Bastão" mas mantém resto do status
-            st.session_state.status_texto[colaborador] = status.replace('Bastão', '').replace('|', '').strip()
     
     # Resetar tempo de bastão
     st.session_state.bastao_start_time = None
     
     save_state()
-    st.success("✅ Bastão resetado! Fila limpa.")
+    
+    if pessoas_afetadas:
+        st.success(f"✅ Sistema resetado! {len(pessoas_afetadas)} pessoa(s) movida(s) para Ausente.")
+    else:
+        st.info("ℹ️ Sistema resetado! Todos já estavam ausentes/indisponíveis.")
+    
     time.sleep(1)
     st.rerun()
 
@@ -2156,7 +2182,25 @@ with col_disponibilidade:
         'indisponivel': []
     }
     
+    # CRÍTICO: Filtrar admins de todas as listas
+    from auth_system import is_usuario_admin
+    
+    # DEBUG: Mostrar para admin quantas pessoas estão sendo processadas
+    if st.session_state.get('is_admin', False):
+        debug_info = []
+    
     for nome in COLABORADORES:
+        # PULAR admins - NÃO APARECEM EM NENHUMA LISTA
+        eh_admin = is_usuario_admin(nome)
+        
+        if st.session_state.get('is_admin', False):
+            status_debug = st.session_state.status_texto.get(nome, 'SEM STATUS')
+            debug_info.append(f"{nome}: is_admin={eh_admin}, status={status_debug}")
+        
+        if eh_admin:
+            continue  # Pula para próximo colaborador
+        
+        # A partir daqui, só processa NÃO-ADMINS
         if nome in st.session_state.bastao_queue:
             ui_lists['fila'].append(nome)
         
@@ -2187,21 +2231,13 @@ with col_disponibilidade:
         st.caption('Ninguém na fila.')
     else:
         for nome in render_order:
-            from auth_system import is_usuario_admin
-            eh_admin = is_usuario_admin(nome)
-            
             col_nome, col_check = st.columns([0.85, 0.15], vertical_alignment="center")
             
-            # CRÍTICO: Checkbox apenas para ADMINS (mas não para si mesmos!)
+            # CRÍTICO: Checkbox apenas para ADMINS
             if st.session_state.get('is_admin', False):
                 key = f'chk_fila_{nome}'
                 is_checked = st.session_state.get(f'check_{nome}', True)
-                
-                # BLOQUEIO: Admin não pode ter checkbox (desabilitar)
-                if eh_admin:
-                    col_check.markdown("🔒")  # Ícone de bloqueio
-                else:
-                    col_check.checkbox(' ', key=key, value=is_checked, on_change=toggle_queue, args=(nome,), label_visibility='collapsed')
+                col_check.checkbox(' ', key=key, value=is_checked, on_change=toggle_queue, args=(nome,), label_visibility='collapsed')
             else:
                 # Colaborador comum não vê checkbox
                 col_check.markdown("")
@@ -2211,23 +2247,28 @@ with col_disponibilidade:
             if "Atividade" in status_atual:
                 extra_info += " 📋"
             
-            # INDICADOR VISUAL: Admin tem badge vermelho
-            if eh_admin:
-                display = f'<span style="background-color: #ef4444; color: #fff; padding: 2px 6px; border-radius: 5px; font-weight: bold;">{nome} [ADMIN]</span>'
-            elif nome == responsavel:
+            if nome == responsavel:
                 display = f'<span style="background-color: #FFD700; color: #000; padding: 2px 6px; border-radius: 5px; font-weight: bold;">{nome}</span>'
             else:
                 display = f'**{nome}**{extra_info} :blue-background[Aguardando]'
             col_nome.markdown(display, unsafe_allow_html=True)
     
-    # Botão Resetar Bastão (APENAS ADMIN)
+    # Botão Resetar Bastão (APENAS ADMIN) - SEMPRE VISÍVEL
     if st.session_state.get('is_admin', False):
         st.markdown("")
-        if len(ui_lists["fila"]) > 0:
-            if st.button("🔄 Resetar Bastão", use_container_width=True, type="secondary", help="Remove TODOS da fila"):
+        total_pessoas = sum([
+            len(ui_lists["fila"]),
+            len(ui_lists["almoco"]),
+            len(ui_lists["saida"]),
+            len(ui_lists["ausente"]),
+            len(ui_lists["atividade_especifica"])
+        ])
+        
+        if total_pessoas > 0:
+            if st.button("🔄 Resetar Sistema", use_container_width=True, type="secondary", help=f"Move TODAS as {total_pessoas} pessoas para Ausente"):
                 resetar_bastao()
         else:
-            st.caption("💡 Botão 'Resetar Bastão' aparece quando há pessoas na fila")
+            st.info("ℹ️ Todos os colaboradores estão indisponíveis")
     
     st.markdown('---')
     
@@ -2310,6 +2351,16 @@ with col_disponibilidade:
     render_section_simples('Almoço', '🍽️', ui_lists['almoco'], 'red')
     render_section_simples('Saída rápida', '🚶', ui_lists['saida'], 'red')
     render_section_simples('Ausente', '👤', ui_lists['ausente'], 'violet')
+    
+    # DEBUG: Mostrar info para admin
+    if st.session_state.get('is_admin', False):
+        with st.expander("🔍 Debug Info (apenas admin vê)"):
+            st.text(f"Total COLABORADORES: {len(COLABORADORES)}")
+            st.text(f"Ausentes na lista: {len(ui_lists['ausente'])}")
+            st.text("---")
+            for info in debug_info:
+                st.text(info)
+
 
 # Footer
 st.markdown("---")
