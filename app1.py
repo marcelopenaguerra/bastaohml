@@ -615,52 +615,40 @@ def toggle_queue(colaborador):
 
 def resetar_bastao():
     """
-    Reseta o sistema - Move TODOS para Ausente (APENAS ADMIN)
-    CRÍTICO: Não adiciona admins à lista
+    Reseta o bastão - Move APENAS quem está na FILA para Ausente (APENAS ADMIN)
+    CRÍTICO: NÃO mexe em quem está em Demanda, Almoço, Saída, etc
     """
     # PROTEÇÃO: Apenas admin pode resetar
     if not st.session_state.get('is_admin', False):
-        st.error("❌ Apenas administradores podem resetar o sistema!")
+        st.error("❌ Apenas administradores podem resetar o bastão!")
         return
     
-    from auth_system import listar_usuarios_ativos, is_usuario_admin
-    todos_usuarios = listar_usuarios_ativos()
+    from auth_system import is_usuario_admin
     
-    pessoas_afetadas = []
-    
-    for nome in todos_usuarios:
-        # Pular admins
-        if is_usuario_admin(nome):
-            continue
-        
-        # Marcar TODOS como Ausente (exceto admins)
-        pessoas_afetadas.append(nome)
-        
-        # Marcar como Ausente
-        st.session_state.status_texto[nome] = 'Ausente'
-        
-        # Remover da fila se estiver
-        if nome in st.session_state.bastao_queue:
-            st.session_state.bastao_queue.remove(nome)
-        
-        # Desmarcar checkbox
-        st.session_state[f'check_{nome}'] = False
-        
-        # Limpar timers
-        if nome in st.session_state.get('almoco_times', {}):
-            del st.session_state.almoco_times[nome]
-        if nome in st.session_state.get('demanda_start_times', {}):
-            del st.session_state.demanda_start_times[nome]
+    # Guardar quem estava na fila (excluindo admins)
+    pessoas_na_fila = [nome for nome in st.session_state.bastao_queue if not is_usuario_admin(nome)]
     
     # Limpar fila completamente
     st.session_state.bastao_queue = []
     
-    # Resetar tempo de bastão
+    # Mover APENAS quem estava na fila para Ausente
+    for nome in pessoas_na_fila:
+        # Desmarcar checkbox
+        st.session_state[f'check_{nome}'] = False
+        
+        # Marcar como Ausente
+        st.session_state.status_texto[nome] = 'Ausente'
+    
+    # Resetar tempo de bastão (se alguém tinha)
     st.session_state.bastao_start_time = None
     
     save_state()
     
-    st.success(f"✅ Sistema resetado! {len(pessoas_afetadas)} pessoa(s) movida(s) para Ausente.")
+    if len(pessoas_na_fila) > 0:
+        st.success(f"✅ Bastão resetado! {len(pessoas_na_fila)} pessoa(s) da fila movida(s) para Ausente.")
+    else:
+        st.info("ℹ️ Fila estava vazia, nada para resetar.")
+    
     time.sleep(1)
     st.rerun()
 
@@ -2235,22 +2223,16 @@ with col_disponibilidade:
                 display = f'**{nome}**{extra_info} :blue-background[Aguardando]'
             col_nome.markdown(display, unsafe_allow_html=True)
     
-    # Botão Resetar Bastão (APENAS ADMIN) - SEMPRE VISÍVEL
+    # Botão Resetar Bastão (APENAS ADMIN) - Move fila para ausente
     if st.session_state.get('is_admin', False):
         st.markdown("")
-        total_pessoas = sum([
-            len(ui_lists["fila"]),
-            len(ui_lists["almoco"]),
-            len(ui_lists["saida"]),
-            len(ui_lists["ausente"]),
-            len(ui_lists["atividade_especifica"])
-        ])
         
-        if total_pessoas > 0:
-            if st.button("🔄 Resetar Sistema", use_container_width=True, type="secondary", help=f"Move TODAS as {total_pessoas} pessoas para Ausente"):
+        # Aparece apenas se tem pessoas na fila
+        if len(ui_lists["fila"]) > 0:
+            if st.button("🔄 Resetar Fila", use_container_width=True, type="secondary", help=f"Move as {len(ui_lists['fila'])} pessoa(s) da fila para Ausente"):
                 resetar_bastao()
         else:
-            st.info("ℹ️ Todos os colaboradores estão indisponíveis")
+            st.caption("💡 Botão 'Resetar Fila' aparece quando há pessoas na fila")
     
     st.markdown('---')
     
