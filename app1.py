@@ -1590,18 +1590,27 @@ with col_principal:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 
-                # Limpeza BRUTAL do texto
+                # Limpeza AGRESSIVA do texto
                 texto_limpo = dem['texto'].strip()
                 
-                # Remove tudo que parecer lixo no início (arr, _arl, .arr, etc)
+                # Remove TODO lixo do início
                 import re
-                # Remove qualquer combinação de pontos, underscores, letras seguidas de [
-                texto_limpo = re.sub(r'^[._]*[a-z]*\[', '[', texto_limpo)
+                # Remove arr, .arr, _arr, arl, etc + [
+                texto_limpo = re.sub(r'^[._]*a+r+[rl_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
+                # Remove QUALQUER caractere minúsculo + ponto/underscore antes de [
+                texto_limpo = re.sub(r'^[._a-z]+\[', '[', texto_limpo, flags=re.IGNORECASE)
                 
-                # Se ainda tem [ no início, remove [Setor] e [Prioridade] duplicados
+                # Se tem [ mas não começa com [, pegar só a partir do [
+                if '[' in texto_limpo and not texto_limpo.startswith('['):
+                    texto_limpo = texto_limpo[texto_limpo.index('['):]
+                
+                # Remove [Setor] e [Prioridade] duplicados
                 if texto_limpo.startswith('['):
                     texto_limpo = texto_limpo.replace(f'[{setor}]', '', 1).strip()
                     texto_limpo = texto_limpo.replace(f'[{prioridade}]', '', 1).strip()
+                
+                # Remove espaços extras
+                texto_limpo = texto_limpo.strip()
                 
                 titulo = f"[{setor}] [{prioridade}] {texto_limpo[:50]}..."
                 
@@ -2068,11 +2077,19 @@ with col_principal:
                             if 'demandas_publicas' not in st.session_state:
                                 st.session_state.demandas_publicas = []
                             
-                            # Limpar QUALQUER "arr" do início
+                            # LIMPEZA AGRESSIVA: Remover TODO lixo do início
                             texto_limpo = nova_demanda_texto.strip()
-                            # Remove tudo antes do primeiro colchete [
+                            
+                            # Remover QUALQUER padrão de lixo: arr, .arr, _arr, etc
+                            texto_limpo = re.sub(r'^[._]*a+r+[rl_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
+                            texto_limpo = re.sub(r'^[._a-z]*\[', '[', texto_limpo, flags=re.IGNORECASE)
+                            
+                            # Se tem [ mas não começa com [, pegar só a partir do [
                             if '[' in texto_limpo and not texto_limpo.startswith('['):
                                 texto_limpo = texto_limpo[texto_limpo.index('['):]
+                            
+                            # Remover espaços extras
+                            texto_limpo = texto_limpo.strip()
                             
                             demanda_obj = {
                                 'id': len(st.session_state.demandas_publicas) + 1,
