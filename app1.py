@@ -5,6 +5,7 @@
 import streamlit as st
 import pandas as pd
 import time
+import re  # Regex para limpeza de texto
 from datetime import datetime, timedelta, date, time as dt_time
 import pytz  # Timezone de Brasília
 from operator import itemgetter
@@ -1595,8 +1596,6 @@ with col_principal:
                 texto_limpo = texto_original.strip()
                 
                 # Remove TODO lixo do início
-                import re
-                
                 # Passo 1: Remove arr, .arr, _arr, arl, etc + [
                 texto_limpo = re.sub(r'^[._]*a+r+[rl_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
                 
@@ -2223,8 +2222,6 @@ with col_principal:
                     st.info("Remove o prefixo '.arr', 'arr', '_arr' etc de todas as demandas salvas no banco.")
                     
                     if st.button("🧹 Limpar '.arr' de todas as demandas", type="primary", use_container_width=True):
-                        import re
-                        
                         # Contar quantas foram limpas
                         limpas = 0
                         
@@ -2288,7 +2285,6 @@ with col_disponibilidade:
     st.header('Status dos(as) Colaboradores(as)')
     
     # Listas de status
-    import re
     ui_lists = {
         'fila': [],
         'almoco': [],
