@@ -589,8 +589,13 @@ def toggle_queue(colaborador):
     
     # PROTEÇÃO CRÍTICA: Admin nunca entra na fila
     if is_usuario_admin(colaborador):
-        st.warning("⚠️ Administradores não entram na fila!")
-        return
+        st.error(f"❌ BLOQUEADO: {colaborador} é administrador e não pode entrar na fila!")
+        # Se por algum motivo estiver na fila, remover
+        if colaborador in st.session_state.bastao_queue:
+            st.session_state.bastao_queue.remove(colaborador)
+            st.session_state[f'check_{colaborador}'] = False
+            save_state()
+        return  # PARA AQUI!
     
     if colaborador in st.session_state.bastao_queue:
         st.session_state.bastao_queue.remove(colaborador)
@@ -607,6 +612,39 @@ def toggle_queue(colaborador):
 
     check_and_assume_baton()
     save_state()  # SALVAR ESTADO APÓS MUDANÇA
+
+def resetar_bastao():
+    """
+    Reseta o bastão - Remove TODOS da fila (APENAS ADMIN)
+    CRÍTICO: Verificação de segurança
+    """
+    # PROTEÇÃO: Apenas admin pode resetar
+    if not st.session_state.get('is_admin', False):
+        st.error("❌ Apenas administradores podem resetar o bastão!")
+        return
+    
+    # Limpar fila completamente
+    st.session_state.bastao_queue = []
+    
+    # Limpar checkboxes de todos
+    from auth_system import listar_usuarios_ativos
+    for nome in listar_usuarios_ativos():
+        st.session_state[f'check_{nome}'] = False
+    
+    # Remover bastão de quem tem
+    for colaborador in st.session_state.status_texto:
+        status = st.session_state.status_texto.get(colaborador, '')
+        if 'Bastão' in status:
+            # Remove apenas "Bastão" mas mantém resto do status
+            st.session_state.status_texto[colaborador] = status.replace('Bastão', '').replace('|', '').strip()
+    
+    # Resetar tempo de bastão
+    st.session_state.bastao_start_time = None
+    
+    save_state()
+    st.success("✅ Bastão resetado! Fila limpa.")
+    time.sleep(1)
+    st.rerun()
 
 def rotate_bastao():
     """Passa o bastão para o próximo colaborador"""
@@ -1187,6 +1225,17 @@ verificar_autenticacao()  # Se não logado, mostra tela de login e para
 # CRÍTICO: Sincronizar SEMPRE do disco para manter guias sincronizadas
 SharedState.sync_to_session_state()
 load_admin_data()  # Carregar demandas públicas também
+
+# ==================== LIMPEZA CRÍTICA: ADMIN NUNCA NA FILA ====================
+# Remover QUALQUER admin da fila (proteção adicional)
+from auth_system import is_usuario_admin
+admin_na_fila = [nome for nome in st.session_state.bastao_queue if is_usuario_admin(nome)]
+if admin_na_fila:
+    for admin in admin_na_fila:
+        st.session_state.bastao_queue.remove(admin)
+        st.session_state[f'check_{admin}'] = False
+    save_state()
+    st.warning(f"⚠️ Admin(s) removido(s) da fila: {', '.join(admin_na_fila)}")
 
 # A partir daqui, usuário está autenticado e tem estado sincronizado
 
@@ -2138,13 +2187,21 @@ with col_disponibilidade:
         st.caption('Ninguém na fila.')
     else:
         for nome in render_order:
+            from auth_system import is_usuario_admin
+            eh_admin = is_usuario_admin(nome)
+            
             col_nome, col_check = st.columns([0.85, 0.15], vertical_alignment="center")
             
-            # CRÍTICO: Checkbox apenas para ADMINS
+            # CRÍTICO: Checkbox apenas para ADMINS (mas não para si mesmos!)
             if st.session_state.get('is_admin', False):
                 key = f'chk_fila_{nome}'
                 is_checked = st.session_state.get(f'check_{nome}', True)
-                col_check.checkbox(' ', key=key, value=is_checked, on_change=toggle_queue, args=(nome,), label_visibility='collapsed')
+                
+                # BLOQUEIO: Admin não pode ter checkbox (desabilitar)
+                if eh_admin:
+                    col_check.markdown("🔒")  # Ícone de bloqueio
+                else:
+                    col_check.checkbox(' ', key=key, value=is_checked, on_change=toggle_queue, args=(nome,), label_visibility='collapsed')
             else:
                 # Colaborador comum não vê checkbox
                 col_check.markdown("")
@@ -2154,11 +2211,24 @@ with col_disponibilidade:
             if "Atividade" in status_atual:
                 extra_info += " 📋"
             
-            if nome == responsavel:
+            # INDICADOR VISUAL: Admin tem badge vermelho
+            if eh_admin:
+                display = f'<span style="background-color: #ef4444; color: #fff; padding: 2px 6px; border-radius: 5px; font-weight: bold;">{nome} [ADMIN]</span>'
+            elif nome == responsavel:
                 display = f'<span style="background-color: #FFD700; color: #000; padding: 2px 6px; border-radius: 5px; font-weight: bold;">{nome}</span>'
             else:
                 display = f'**{nome}**{extra_info} :blue-background[Aguardando]'
             col_nome.markdown(display, unsafe_allow_html=True)
+    
+    # Botão Resetar Bastão (APENAS ADMIN)
+    if st.session_state.get('is_admin', False):
+        st.markdown("")
+        if len(ui_lists["fila"]) > 0:
+            if st.button("🔄 Resetar Bastão", use_container_width=True, type="secondary", help="Remove TODOS da fila"):
+                resetar_bastao()
+        else:
+            st.caption("💡 Botão 'Resetar Bastão' aparece quando há pessoas na fila")
+    
     st.markdown('---')
     
     # Função auxiliar para renderizar seções
