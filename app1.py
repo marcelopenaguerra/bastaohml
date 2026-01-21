@@ -1590,19 +1590,28 @@ with col_principal:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 
-                # Limpeza AGRESSIVA do texto
-                texto_limpo = dem['texto'].strip()
+                # Limpeza SUPER AGRESSIVA do texto
+                texto_original = dem['texto']
+                texto_limpo = texto_original.strip()
                 
                 # Remove TODO lixo do início
                 import re
-                # Remove arr, .arr, _arr, arl, etc + [
+                
+                # Passo 1: Remove arr, .arr, _arr, arl, etc + [
                 texto_limpo = re.sub(r'^[._]*a+r+[rl_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
-                # Remove QUALQUER caractere minúsculo + ponto/underscore antes de [
+                
+                # Passo 2: Remove QUALQUER caractere minúsculo + ponto/underscore antes de [
                 texto_limpo = re.sub(r'^[._a-z]+\[', '[', texto_limpo, flags=re.IGNORECASE)
                 
-                # Se tem [ mas não começa com [, pegar só a partir do [
+                # Passo 3: Se tem [ mas não começa com [, pegar só a partir do [
                 if '[' in texto_limpo and not texto_limpo.startswith('['):
                     texto_limpo = texto_limpo[texto_limpo.index('['):]
+                
+                # FALLBACK FINAL: Se AINDA tem "arr" visível, remover na força bruta
+                if 'arr' in texto_limpo.lower()[:10]:  # Só nos primeiros 10 caracteres
+                    # Remove qualquer coisa até o primeiro [
+                    if '[' in texto_limpo:
+                        texto_limpo = '[' + texto_limpo.split('[', 1)[1]
                 
                 # Remove [Setor] e [Prioridade] duplicados
                 if texto_limpo.startswith('['):
@@ -1997,7 +2006,7 @@ with col_principal:
                 st.markdown("### Painel Administrativo")
                 st.caption(f"Admin: {st.session_state.usuario_logado}")
                 
-                tab1, tab2, tab3, tab4 = st.tabs(["Cadastrar Colaborador", "Gerenciar Demandas", "Remover Usuário", "Banco de Dados"])
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["Cadastrar Colaborador", "Gerenciar Demandas", "Remover Usuário", "Banco de Dados", "Manutenção"])
                 
                 # TAB 1: Cadastrar Colaborador
                 with tab1:
@@ -2204,6 +2213,67 @@ with col_principal:
                     st.markdown("#### Gerenciar Banco de Dados")
                     if st.button("Abrir Painel de BD", use_container_width=True):
                         st.session_state.active_view = 'admin_bd'
+                        st.rerun()
+                
+                # TAB 5: Manutenção
+                with tab5:
+                    st.markdown("#### 🔧 Manutenção do Sistema")
+                    
+                    st.markdown("##### Limpar prefixo '.arr' das demandas")
+                    st.info("Remove o prefixo '.arr', 'arr', '_arr' etc de todas as demandas salvas no banco.")
+                    
+                    if st.button("🧹 Limpar '.arr' de todas as demandas", type="primary", use_container_width=True):
+                        import re
+                        
+                        # Contar quantas foram limpas
+                        limpas = 0
+                        
+                        # Limpar demandas públicas
+                        if 'demandas_publicas' in st.session_state:
+                            for dem in st.session_state.demandas_publicas:
+                                texto_original = dem['texto']
+                                texto_limpo = texto_original.strip()
+                                
+                                # Aplicar limpeza agressiva
+                                texto_limpo = re.sub(r'^[._]*a+r+[rl_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
+                                texto_limpo = re.sub(r'^[._a-z]+\[', '[', texto_limpo, flags=re.IGNORECASE)
+                                
+                                if '[' in texto_limpo and not texto_limpo.startswith('['):
+                                    texto_limpo = texto_limpo[texto_limpo.index('['):]
+                                
+                                texto_limpo = texto_limpo.strip()
+                                
+                                # Se mudou, atualizar
+                                if texto_limpo != texto_original:
+                                    dem['texto'] = texto_limpo
+                                    limpas += 1
+                            
+                            # Salvar
+                            if limpas > 0:
+                                save_admin_data()
+                                st.success(f"✅ {limpas} demanda(s) limpa(s) com sucesso!")
+                            else:
+                                st.info("ℹ️ Nenhuma demanda precisava de limpeza.")
+                        else:
+                            st.warning("⚠️ Nenhuma demanda encontrada.")
+                        
+                        time.sleep(1)
+                        st.rerun()
+                    
+                    st.markdown("---")
+                    
+                    st.markdown("##### Recarregar lista de colaboradores")
+                    st.info("Atualiza a lista de colaboradores do banco de dados.")
+                    
+                    if st.button("🔄 Recarregar colaboradores", use_container_width=True):
+                        # Forçar reload da lista
+                        import importlib
+                        import sys
+                        if 'auth_system' in sys.modules:
+                            importlib.reload(sys.modules['auth_system'])
+                        
+                        st.success("✅ Lista de colaboradores recarregada!")
+                        time.sleep(1)
                         st.rerun()
     
     # ==================== PAINEL ADMIN BD ====================
