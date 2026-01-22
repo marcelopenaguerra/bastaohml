@@ -1,4 +1,4 @@
-# ============================================
+========================
 # CONTROLE DE BASTÃO Informática 2026
 # Versão: Completa com Login e Banco de Dados
 # ============================================
@@ -9,6 +9,7 @@ import re  # Regex para limpeza de texto
 from datetime import datetime, timedelta, date, time as dt_time
 import pytz  # Timezone de Brasília
 from operator import itemgetter
+from streamlit_autorefresh import st_autorefresh
 import random
 import base64
 import os
@@ -19,7 +20,7 @@ from pathlib import Path
 # Sistema de autenticação
 from auth_system import init_database, verificar_login, listar_usuarios_ativos, adicionar_usuario, is_usuario_admin
 from login_screen import verificar_autenticacao, mostrar_tela_login, fazer_logout
-from admin_bd_panel import mostrar_painel_admin_bd
+from admin_bd_panel import mostrar_painel_admin_bd, adicionar_menu_bd_sidebar
 
 # Sistema de Estado Compartilhado
 from shared_state import SharedState
@@ -778,42 +779,6 @@ def rotate_bastao():
         save_state()
         st.rerun()
     else:
-        st.warning('⚠️ Não há próximo colaborador disponível.')
-
-def force_rotate_bastao(from_colaborador):
-    """
-    FORÇA passar o bastão sem validação (usado quando admin tira alguém da fila)
-    """
-    queue = st.session_state.bastao_queue
-    
-    # Remover bastão do colaborador atual
-    old_status = st.session_state.status_texto.get(from_colaborador, '')
-    new_status = old_status.replace('Bastão | ', '').replace('Bastão', '').strip()
-    st.session_state.status_texto[from_colaborador] = new_status
-    
-    # Se ainda tem gente na fila, dar bastão para o próximo
-    if queue:
-        # Pegar o primeiro da fila que está marcado
-        next_holder = None
-        for colaborador in queue:
-            if st.session_state.get(f'check_{colaborador}', False):
-                next_holder = colaborador
-                break
-        
-        if next_holder:
-            old_n_status = st.session_state.status_texto.get(next_holder, '')
-            new_n_status = f"Bastão | {old_n_status}" if old_n_status else "Bastão"
-            st.session_state.status_texto[next_holder] = new_n_status
-            st.session_state.bastao_start_time = now_brasilia()
-            st.session_state.bastao_counts[from_colaborador] = st.session_state.bastao_counts.get(from_colaborador, 0) + 1
-            save_state()
-        else:
-            # Ninguém marcado, chamar check_and_assume_baton
-            check_and_assume_baton()
-    else:
-        # Fila vazia
-        save_state()
-
         st.warning('⚠️ Não há próximo(a) colaborador(a) elegível na fila.')
         check_and_assume_baton()
 
@@ -1379,15 +1344,8 @@ init_session_state()
 apply_modern_styles()
 
 # ==================== AUTO-REFRESH ====================
-# Atualiza automaticamente a cada 3 segundos para sincronizar estado
-if 'last_update' not in st.session_state:
-    st.session_state.last_update = time.time()
-
-# Se passou 3 segundos, recarregar
-current_time = time.time()
-if current_time - st.session_state.last_update > 3:
-    st.session_state.last_update = current_time
-    st.rerun()  # Rerun forçado - sincronização acontece na linha 1399
+# CRÍTICO: Auto-refresh ANTES de tudo para forçar sincronização
+st_autorefresh(interval=3000, key='auto_rerun_key')
 
 # ==================== VERIFICAÇÃO DE LOGIN ====================
 verificar_autenticacao()  # Se não logado, mostra tela de login e para
@@ -1698,7 +1656,6 @@ with col_principal:
         """, unsafe_allow_html=True)
         
         # ========== DEMANDAS PÚBLICAS PISCANDO (ITEM 10) ==========
-        # TODOS (incluindo ADMINS) podem ver e assumir demandas
         # CRÍTICO: Filtrar por usuario_logado, NÃO por quem tem o bastão
         usuario_logado = st.session_state.usuario_logado
         demandas_ativas = [
@@ -1995,29 +1952,24 @@ with col_principal:
                     
                     # Se direcionada, atribuir automaticamente
                     if colaborador_direcionado:
-                        # CRÍTICO: Verificar bastão ANTES de mudar status
-                        tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
-                        estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
-                        
-                        # Agora mudar o status
                         atividade_desc = f"[{setor}] {texto_limpo[:100]}"
                         st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
                         st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
                         
-                        # Remover da fila
+                        # Se estava na fila, remover
+                        estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
+                        tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
+                        
                         if estava_na_fila:
                             st.session_state.bastao_queue.remove(colaborador_direcionado)
                         
-                        # Desmarcar checkbox
                         st.session_state[f'check_{colaborador_direcionado}'] = False
                         
-                        # Se tinha bastão, passar para próximo (SEM validação)
+                        # CRÍTICO: Se tinha bastão, passar para próximo
                         if tinha_bastao:
-                            force_rotate_bastao(colaborador_direcionado)
-                        else:
-                            # Se não tinha bastão, só salvar
-                            save_state()
+                            rotate_bastao()  # Passa bastão automaticamente
                         
+                        save_state()
                         st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
                     else:
                         st.success("✅ Demanda publicada!")
@@ -2314,29 +2266,24 @@ with col_principal:
                             
                             # Se direcionada, atribuir automaticamente
                             if colaborador_direcionado:
-                                # CRÍTICO: Verificar bastão ANTES de mudar status
-                                tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
-                                estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
-                                
-                                # Mudar status
                                 atividade_desc = f"[{setor}] {texto_limpo[:100]}"
                                 st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
                                 st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
                                 
-                                # Remover da fila
+                                # Se estava na fila, remover
+                                estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
+                                tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
+                                
                                 if estava_na_fila:
                                     st.session_state.bastao_queue.remove(colaborador_direcionado)
                                 
-                                # Desmarcar checkbox
                                 st.session_state[f'check_{colaborador_direcionado}'] = False
                                 
-                                # Se tinha bastão, passar para próximo (SEM validação)
+                                # CRÍTICO: Se tinha bastão, passar para próximo
                                 if tinha_bastao:
-                                    force_rotate_bastao(colaborador_direcionado)
-                                else:
-                                    # Se não tinha bastão, só salvar
-                                    save_state()
+                                    rotate_bastao()  # Passa bastão automaticamente
                                 
+                                save_state()
                                 st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
                             else:
                                 st.success("✅ Demanda publicada!")
@@ -2451,26 +2398,19 @@ with col_disponibilidade:
         'indisponivel': []
     }
     
-    # CRÍTICO: Filtrar admins (EXCETO: Em Demanda, Almoço, Saída rápida)
+    # CRÍTICO: Filtrar admins de todas as listas
     from auth_system import is_usuario_admin
     
     for nome in COLABORADORES:
-        eh_admin = is_usuario_admin(nome)
-        status = st.session_state.status_texto.get(nome, 'Indisponível')
+        # PULAR admins - NÃO APARECEM EM NENHUMA LISTA
+        if is_usuario_admin(nome):
+            continue  # Pula para próximo colaborador
         
-        # Admin SÓ aparece se estiver em: Atividade, Almoço ou Saída rápida
-        if eh_admin:
-            pode_mostrar = (
-                'Atividade:' in status or 
-                status == 'Almoço' or 
-                status == 'Saída rápida'
-            )
-            if not pode_mostrar:
-                continue  # Pula admin em outros status
-        
-        # A partir daqui: NÃO-ADMINS ou ADMINS nos status permitidos
+        # A partir daqui, só processa NÃO-ADMINS
         if nome in st.session_state.bastao_queue:
             ui_lists['fila'].append(nome)
+        
+        status = st.session_state.status_texto.get(nome, 'Indisponível')
         
         if status == '' or status is None:
             pass
@@ -2627,4 +2567,4 @@ with col_disponibilidade:
 
 # Footer
 st.markdown("---")
-st.caption("Sistema de Controle de Bastão - Informática 2026 - Versão Local (Sem Integrações Externas)")
+caption("Sistema de Controle de Bastão - Informática 2026 - Versão Local (Sem Integrações Externas)")
