@@ -1,4 +1,3 @@
-========================
 # CONTROLE DE BASTÃO Informática 2026
 # Versão: Completa com Login e Banco de Dados
 # ============================================
