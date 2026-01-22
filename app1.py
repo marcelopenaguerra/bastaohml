@@ -20,6 +20,7 @@ from pathlib import Path
 # Sistema de autenticação
 from auth_system import init_database, verificar_login, listar_usuarios_ativos, adicionar_usuario, is_usuario_admin
 from login_screen import verificar_autenticacao, mostrar_tela_login, fazer_logout
+from admin_bd_panel import mostrar_painel_admin_bd, adicionar_menu_bd_sidebar
 
 # Sistema de Estado Compartilhado
 from shared_state import SharedState
@@ -90,6 +91,41 @@ def get_colaboradores():
 
 # PROBLEMA 6: Lista dinâmica (atualiza quando novo usuário é criado)
 COLABORADORES = get_colaboradores()
+
+# --- FUNÇÃO GLOBAL DE LIMPEZA DE TEXTO ---
+def limpar_texto_demanda(texto):
+    """
+    Remove TODO e QUALQUER lixo do texto de demandas
+    Aplicar em TODOS os lugares onde texto de demanda aparece
+    """
+    if not texto:
+        return ""
+    
+    texto_limpo = str(texto).strip()
+    
+    # Camada 1: Remove prefixos específicos (arr, _ari, .arl, etc)
+    texto_limpo = re.sub(r'^[._]*[a-z]*r[ril_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
+    
+    # Camada 2: Remove QUALQUER letra + ponto/underscore antes de [
+    texto_limpo = re.sub(r'^[._a-z]+\[', '[', texto_limpo, flags=re.IGNORECASE)
+    
+    # Camada 3: Se tem [ mas não começa com [, forçar a partir do [
+    if '[' in texto_limpo and not texto_limpo.startswith('['):
+        idx = texto_limpo.index('[')
+        texto_limpo = texto_limpo[idx:]
+    
+    # Camada 4: Remove TODAS as tags [xxx] do início (pode ter várias)
+    while texto_limpo.startswith('['):
+        match = re.match(r'^\[.*?\]\s*', texto_limpo)
+        if match:
+            texto_limpo = texto_limpo[match.end():]
+        else:
+            break
+    
+    # Camada 5: Remove espaços duplicados e trim
+    texto_limpo = re.sub(r'\s+', ' ', texto_limpo).strip()
+    
+    return texto_limpo
 
 # --- Constantes de Opções ---
 REG_USUARIO_OPCOES = ["Cartório", "Externo"]
@@ -1052,6 +1088,10 @@ def gerar_html_relatorio(logs_filtrados):
             tipo = "ERRO/NOVIDADE"
             classe_tipo = "tipo-erro"
             icone = "Bug:"
+        elif log.get('tipo') == 'demanda':
+            tipo = "DEMANDA CONCLUÍDA"
+            classe_tipo = "tipo-atendimento"
+            icone = "📋"
         else:
             tipo = "REGISTRO"
             classe_tipo = "tipo-atendimento"
@@ -1140,6 +1180,50 @@ def gerar_html_relatorio(logs_filtrados):
                 <div class="campo-label">🏁 Resultado:</div>
                 <div class="campo-valor">{log.get('resultado', 'N/A')}</div>
             </div>
+            """
+        
+        elif log.get('tipo') == 'demanda':
+            # Demanda concluída
+            duracao_min = log.get('duracao_minutos', 0)
+            html += f"""
+            <div class="campo">
+                <div class="campo-label">📝 Atividade:</div>
+                <div class="campo-valor">{log.get('atividade', 'N/A')}</div>
+            </div>
+            <div class="campo">
+                <div class="campo-label">⏱️ Duração:</div>
+                <div class="campo-valor">{duracao_min:.0f} minutos</div>
+            </div>
+            """
+            
+            # Horários
+            inicio = log.get('inicio', '')
+            fim = log.get('fim', '')
+            if inicio:
+                try:
+                    inicio_dt = datetime.fromisoformat(inicio)
+                    html += f"""
+            <div class="campo">
+                <div class="campo-label">🕐 Início:</div>
+                <div class="campo-valor">{inicio_dt.strftime('%d/%m/%Y %H:%M:%S')}</div>
+            </div>
+                    """
+                except:
+                    pass
+            
+            if fim:
+                try:
+                    fim_dt = datetime.fromisoformat(fim)
+                    html += f"""
+            <div class="campo">
+                <div class="campo-label">🏁 Término:</div>
+                <div class="campo-valor">{fim_dt.strftime('%d/%m/%Y %H:%M:%S')}</div>
+            </div>
+                    """
+                except:
+                    pass
+            
+            html += """
             """
         
         html += "</div>"
@@ -1295,16 +1379,21 @@ if 'ja_processou_entrada_fila' not in st.session_state:
 
 # ADMIN não entra na fila
 if not is_admin and not st.session_state.ja_processou_entrada_fila:
-    # Verificar se está em status bloqueante
+    # Verificar status atual
     status_atual = st.session_state.status_texto.get(usuario_atual, '')
-    statuses_bloqueantes = ['Almoço', 'Ausente', 'Saída rápida', 'Atividade:']
+    
+    # Statuses que IMPEDEM entrada automática (só atividade em andamento)
+    statuses_bloqueantes = ['Almoço', 'Saída rápida', 'Atividade:']
     esta_bloqueado = any(status in status_atual for status in statuses_bloqueantes)
     
-    # Só adiciona se NÃO está na fila e NÃO está bloqueado
-    if usuario_atual not in st.session_state.bastao_queue and not esta_bloqueado:
-        st.session_state.bastao_queue.append(usuario_atual)
-        st.session_state[f'check_{usuario_atual}'] = True
-        if st.session_state.status_texto.get(usuario_atual) == 'Indisponível':
+    # Se está ausente OU sem status, adicionar à fila
+    if not esta_bloqueado:
+        if usuario_atual not in st.session_state.bastao_queue:
+            st.session_state.bastao_queue.append(usuario_atual)
+            st.session_state[f'check_{usuario_atual}'] = True
+        
+        # Limpar status Ausente/Indisponível
+        if status_atual in ['Ausente', 'Indisponível', '']:
             st.session_state.status_texto[usuario_atual] = ''
         
         check_and_assume_baton()
@@ -1590,34 +1679,8 @@ with col_principal:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 
-                # Limpeza SUPER AGRESSIVA do texto
-                texto_original = dem['texto']
-                texto_limpo = texto_original.strip()
-                
-                # Remove TODO lixo do início
-                # Passo 1: Remove arr, .arr, _arr, arl, etc + [
-                texto_limpo = re.sub(r'^[._]*a+r+[rl_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
-                
-                # Passo 2: Remove QUALQUER caractere minúsculo + ponto/underscore antes de [
-                texto_limpo = re.sub(r'^[._a-z]+\[', '[', texto_limpo, flags=re.IGNORECASE)
-                
-                # Passo 3: Se tem [ mas não começa com [, pegar só a partir do [
-                if '[' in texto_limpo and not texto_limpo.startswith('['):
-                    texto_limpo = texto_limpo[texto_limpo.index('['):]
-                
-                # FALLBACK FINAL: Se AINDA tem "arr" visível, remover na força bruta
-                if 'arr' in texto_limpo.lower()[:10]:  # Só nos primeiros 10 caracteres
-                    # Remove qualquer coisa até o primeiro [
-                    if '[' in texto_limpo:
-                        texto_limpo = '[' + texto_limpo.split('[', 1)[1]
-                
-                # Remove [Setor] e [Prioridade] duplicados
-                if texto_limpo.startswith('['):
-                    texto_limpo = texto_limpo.replace(f'[{setor}]', '', 1).strip()
-                    texto_limpo = texto_limpo.replace(f'[{prioridade}]', '', 1).strip()
-                
-                # Remove espaços extras
-                texto_limpo = texto_limpo.strip()
+                # LIMPEZA GLOBAL
+                texto_limpo = limpar_texto_demanda(dem['texto'])
                 
                 titulo = f"[{setor}] [{prioridade}] {texto_limpo[:50]}..."
                 
@@ -1805,15 +1868,116 @@ with col_principal:
     
     # Admins têm mais botões
     if st.session_state.is_admin:
-        col1, col2, col3 = st.columns(3)
-        col1.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
-        col2.button("Relatórios", help="Ver Registros Salvos", use_container_width=True, on_click=toggle_view, args=("relatorios",))
-        col3.button("Admin", help="Painel Administrativo", use_container_width=True, on_click=toggle_view, args=("admin_panel",), type="primary")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.button("Gerenciar Demandas", help="Publicar e Gerenciar Demandas", use_container_width=True, on_click=toggle_view, args=("gerenciar_demandas",))
+        col2.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
+        col3.button("Relatórios", help="Ver Registros Salvos", use_container_width=True, on_click=toggle_view, args=("relatorios",))
+        col4.button("Admin", help="Painel Administrativo", use_container_width=True, on_click=toggle_view, args=("admin_panel",), type="primary")
     else:
         col1 = st.columns(1)[0]
         col1.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
     
     # Views das ferramentas
+    
+    # View de Gerenciar Demandas (ADMIN)
+    if st.session_state.active_view == "gerenciar_demandas" and st.session_state.is_admin:
+        with st.container(border=True):
+            st.markdown("### Gerenciar Demandas")
+            st.markdown("#### Publicar Nova Demanda")
+            nova_demanda_texto = st.text_area("Descrição da demanda:", height=100, key="toolbar_nova_demanda")
+            
+            col_p1, col_p2 = st.columns(2)
+            
+            with col_p1:
+                prioridade = st.radio("Prioridade:", 
+                                     options=["Baixa", "Média", "Alta", "Urgente"],
+                                     index=1,
+                                     horizontal=False,
+                                     key="toolbar_prioridade")
+            
+            with col_p2:
+                setor = st.selectbox("Setor:",
+                                    options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
+                                    key="toolbar_setor")
+            
+            # Direcionar para colaborador específico
+            direcionar = st.checkbox("Direcionar para colaborador específico?", key="toolbar_direcionar")
+            
+            colaborador_direcionado = None
+            if direcionar:
+                # Mostrar TODOS os colaboradores (exceto admins)
+                from auth_system import is_usuario_admin
+                colaboradores_disponiveis = [c for c in COLABORADORES 
+                                            if not is_usuario_admin(c)]
+                
+                if colaboradores_disponiveis:
+                    colaborador_direcionado = st.selectbox(
+                        "Selecione o colaborador:",
+                        options=sorted(colaboradores_disponiveis),
+                        key="toolbar_colab_direcionado"
+                    )
+                    
+                    # Mostrar status do colaborador selecionado
+                    status_colab = st.session_state.status_texto.get(colaborador_direcionado, 'Sem status')
+                    if colaborador_direcionado in st.session_state.bastao_queue:
+                        st.info(f"✅ {colaborador_direcionado} está na fila")
+                    elif status_colab == 'Ausente':
+                        st.warning(f"⚠️ {colaborador_direcionado} está Ausente (receberá demanda mesmo assim)")
+                    else:
+                        st.info(f"ℹ️ {colaborador_direcionado} - Status: {status_colab}")
+                else:
+                    st.error("❌ Nenhum colaborador cadastrado no sistema.")
+                    direcionar = False
+            
+            if st.button("Publicar Demanda", key="toolbar_pub_demanda", type="primary"):
+                if nova_demanda_texto:
+                    if 'demandas_publicas' not in st.session_state:
+                        st.session_state.demandas_publicas = []
+                    
+                    # LIMPEZA GLOBAL
+                    texto_limpo = limpar_texto_demanda(nova_demanda_texto)
+                    
+                    demanda_obj = {
+                        'id': len(st.session_state.demandas_publicas) + 1,
+                        'texto': texto_limpo,
+                        'prioridade': prioridade,
+                        'setor': setor,
+                        'criado_em': now_brasilia().isoformat(),
+                        'criado_por': st.session_state.usuario_logado,
+                        'ativa': True,
+                        'direcionada_para': colaborador_direcionado if direcionar else None
+                    }
+                    st.session_state.demandas_publicas.append(demanda_obj)
+                    save_admin_data()
+                    
+                    # Se direcionada, atribuir automaticamente
+                    if colaborador_direcionado:
+                        atividade_desc = f"[{setor}] {texto_limpo[:100]}"
+                        st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
+                        st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
+                        
+                        # Se estava na fila, remover
+                        estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
+                        tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
+                        
+                        if estava_na_fila:
+                            st.session_state.bastao_queue.remove(colaborador_direcionado)
+                        
+                        st.session_state[f'check_{colaborador_direcionado}'] = False
+                        
+                        # CRÍTICO: Se tinha bastão, passar para próximo
+                        if tinha_bastao:
+                            rotate_bastao()  # Passa bastão automaticamente
+                        
+                        save_state()
+                        st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
+                    else:
+                        st.success("✅ Demanda publicada!")
+                    
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("Digite a descrição da demanda!")
     
     # View de Erro/Novidade
     if st.session_state.active_view == "erro_novidade":
@@ -2084,29 +2248,8 @@ with col_principal:
                             if 'demandas_publicas' not in st.session_state:
                                 st.session_state.demandas_publicas = []
                             
-                            # LIMPEZA SUPER AGRESSIVA: Remover TODO lixo
-                            texto_limpo = nova_demanda_texto.strip()
-                            
-                            # Remover QUALQUER prefixo estranho (arr, _ari, .arr, etc)
-                            # Remove tudo antes do conteúdo real
-                            texto_limpo = re.sub(r'^[._]*[a-z]*r[ril_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
-                            texto_limpo = re.sub(r'^[._a-z]+\[', '[', texto_limpo, flags=re.IGNORECASE)
-                            
-                            # Se tem [ mas não começa com [, pegar a partir do [
-                            if '[' in texto_limpo and not texto_limpo.startswith('['):
-                                texto_limpo = texto_limpo[texto_limpo.index('['):]
-                            
-                            # Remover TAGS [Geral] [Urgente] etc do texto
-                            # O setor e prioridade já estão salvos separadamente!
-                            texto_limpo = texto_limpo.replace(f'[{setor}]', '').strip()
-                            texto_limpo = texto_limpo.replace(f'[{prioridade}]', '').strip()
-                            
-                            # Remove QUALQUER coisa entre [ ] no início
-                            texto_limpo = re.sub(r'^\[.*?\]\s*', '', texto_limpo).strip()
-                            texto_limpo = re.sub(r'^\[.*?\]\s*', '', texto_limpo).strip()  # Duas vezes caso tenha 2 tags
-                            
-                            # Remover espaços extras
-                            texto_limpo = texto_limpo.strip()
+                            # LIMPEZA GLOBAL
+                            texto_limpo = limpar_texto_demanda(nova_demanda_texto)
                             
                             demanda_obj = {
                                 'id': len(st.session_state.demandas_publicas) + 1,
@@ -2127,12 +2270,18 @@ with col_principal:
                                 st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
                                 st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
                                 
-                                if colaborador_direcionado in st.session_state.bastao_queue:
+                                # Se estava na fila, remover
+                                estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
+                                tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
+                                
+                                if estava_na_fila:
                                     st.session_state.bastao_queue.remove(colaborador_direcionado)
+                                
                                 st.session_state[f'check_{colaborador_direcionado}'] = False
                                 
-                                if 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, ''):
-                                    check_and_assume_baton()
+                                # CRÍTICO: Se tinha bastão, passar para próximo
+                                if tinha_bastao:
+                                    rotate_bastao()  # Passa bastão automaticamente
                                 
                                 save_state()
                                 st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
@@ -2156,24 +2305,8 @@ with col_principal:
                                 prioridade_tag = dem.get('prioridade', 'Média')
                                 direcionado = dem.get('direcionada_para')
                                 
-                                # LIMPEZA DO TEXTO
-                                texto_limpo = dem['texto'].strip()
-                                
-                                # Remove prefixos estranhos
-                                texto_limpo = re.sub(r'^[._]*[a-z]*r[ril_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
-                                texto_limpo = re.sub(r'^[._a-z]+\[', '[', texto_limpo, flags=re.IGNORECASE)
-                                
-                                # Se tem [ mas não começa, pegar do [
-                                if '[' in texto_limpo and not texto_limpo.startswith('['):
-                                    texto_limpo = texto_limpo[texto_limpo.index('['):]
-                                
-                                # Remove tags duplicadas
-                                texto_limpo = texto_limpo.replace(f'[{setor_tag}]', '').strip()
-                                texto_limpo = texto_limpo.replace(f'[{prioridade_tag}]', '').strip()
-                                
-                                # Remove QUALQUER [tag] no início
-                                texto_limpo = re.sub(r'^\[.*?\]\s*', '', texto_limpo).strip()
-                                texto_limpo = re.sub(r'^\[.*?\]\s*', '', texto_limpo).strip()
+                                # LIMPEZA GLOBAL
+                                texto_limpo = limpar_texto_demanda(dem['texto'])
                                 
                                 texto_exibicao = f"[{setor_tag}] {texto_limpo[:50]}..."
                                 if direcionado:
@@ -2227,6 +2360,7 @@ with col_principal:
                                     # Recriar como admin
                                     from auth_system import adicionar_usuario
                                     if adicionar_usuario(usuario_remover, "admin123", is_admin=True):
+                                        # CRÍTICO: Forçar rerun para recarregar lista
                                         st.success(f"✅ {usuario_remover} recriado como Admin!")
                                         st.info("🔑 Senha padrão: admin123")
                                         time.sleep(2)
@@ -2296,25 +2430,15 @@ with col_disponibilidade:
             if match:
                 desc_atividade = match.group(1).split('|')[0].strip()
                 
-                # LIMPEZA da descrição de atividade
-                desc_limpa = desc_atividade
+                # LIMPEZA GLOBAL (mas mantém [Setor])
+                desc_limpa = limpar_texto_demanda(desc_atividade)
                 
-                # Remove prefixos estranhos
-                desc_limpa = re.sub(r'^[._]*[a-z]*r[ril_]*\[', '[', desc_limpa, flags=re.IGNORECASE)
-                desc_limpa = re.sub(r'^[._a-z]+\[', '[', desc_limpa, flags=re.IGNORECASE)
-                
-                # Se tem [ mas não começa, pegar do [
-                if '[' in desc_limpa and not desc_limpa.startswith('['):
-                    desc_limpa = desc_limpa[desc_limpa.index('['):]
-                
-                # Remove QUALQUER [tag] no início (uma vez só, mantém [Setor])
-                # Mas remove duplicatas
-                partes = desc_limpa.split(']', 1)
-                if len(partes) == 2 and partes[0].startswith('['):
-                    # Mantém só [Setor] primeira tag
-                    desc_limpa = partes[0] + ']' + partes[1]
-                
-                desc_limpa = desc_limpa.strip()
+                # Se perdeu o [Setor], tentar recuperar
+                if not desc_limpa.startswith('[') and '[' in desc_atividade:
+                    # Pegar o [Setor] do original
+                    match_setor = re.match(r'\[([^\]]+)\]', desc_atividade)
+                    if match_setor:
+                        desc_limpa = f"[{match_setor.group(1)}] {desc_limpa}"
                 
                 ui_lists['atividade_especifica'].append((nome, desc_limpa))
     
