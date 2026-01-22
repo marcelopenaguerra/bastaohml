@@ -1379,8 +1379,7 @@ init_session_state()
 apply_modern_styles()
 
 # ==================== AUTO-REFRESH ====================
-# Usa rerun automático do Streamlit (nativo, sem dependências extras)
-# Atualiza a cada 3 segundos automaticamente
+# Atualiza automaticamente a cada 3 segundos para sincronizar estado
 if 'last_update' not in st.session_state:
     st.session_state.last_update = time.time()
 
@@ -1388,8 +1387,7 @@ if 'last_update' not in st.session_state:
 current_time = time.time()
 if current_time - st.session_state.last_update > 3:
     st.session_state.last_update = current_time
-    # Forçar atualização silenciosa (comentar esta linha se quiser desabilitar auto-refresh)
-    # st.rerun()
+    st.rerun()  # Rerun forçado - sincronização acontece na linha 1399
 
 # ==================== VERIFICAÇÃO DE LOGIN ====================
 verificar_autenticacao()  # Se não logado, mostra tela de login e para
@@ -2335,8 +2333,10 @@ with col_principal:
                                 # Se tinha bastão, passar para próximo (SEM validação)
                                 if tinha_bastao:
                                     force_rotate_bastao(colaborador_direcionado)
+                                else:
+                                    # Se não tinha bastão, só salvar
+                                    save_state()
                                 
-                                save_state()
                                 st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
                             else:
                                 st.success("✅ Demanda publicada!")
