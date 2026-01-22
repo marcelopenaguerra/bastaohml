@@ -2016,8 +2016,10 @@ with col_principal:
                         # Se tinha bastão, passar para próximo (SEM validação)
                         if tinha_bastao:
                             force_rotate_bastao(colaborador_direcionado)
+                        else:
+                            # Se não tinha bastão, só salvar
+                            save_state()
                         
-                        save_state()
                         st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
                     else:
                         st.success("✅ Demanda publicada!")
