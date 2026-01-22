@@ -146,27 +146,6 @@ streamlit run app_informatica_com_cache.py
 http://localhost:8501
 ```
 
----
-
-## ⚙️ Configuração
-
-### Usuários Padrão
-
-**Administradores:**
-```
-Usuário: Marcio Rodrigues Alves
-Senha: admin123
-
-Usuário: Daniely Cristina Cunha Mesquita
-Senha: admin123
-```
-
-**Colaboradores:**
-```
-Todos os demais colaboradores
-Senha padrão: user123
-```
-
 ### Personalização
 
 **Editar colaboradores:**
