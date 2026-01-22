@@ -9,7 +9,6 @@ import re  # Regex para limpeza de texto
 from datetime import datetime, timedelta, date, time as dt_time
 import pytz  # Timezone de Brasília
 from operator import itemgetter
-from streamlit_autorefresh import st_autorefresh
 import random
 import base64
 import os
@@ -20,7 +19,7 @@ from pathlib import Path
 # Sistema de autenticação
 from auth_system import init_database, verificar_login, listar_usuarios_ativos, adicionar_usuario, is_usuario_admin
 from login_screen import verificar_autenticacao, mostrar_tela_login, fazer_logout
-from admin_bd_panel import mostrar_painel_admin_bd, adicionar_menu_bd_sidebar
+from admin_bd_panel import mostrar_painel_admin_bd
 
 # Sistema de Estado Compartilhado
 from shared_state import SharedState
@@ -1344,8 +1343,17 @@ init_session_state()
 apply_modern_styles()
 
 # ==================== AUTO-REFRESH ====================
-# CRÍTICO: Auto-refresh ANTES de tudo para forçar sincronização
-st_autorefresh(interval=3000, key='auto_rerun_key')
+# Usa rerun automático do Streamlit (nativo, sem dependências extras)
+# Atualiza a cada 3 segundos automaticamente
+if 'last_update' not in st.session_state:
+    st.session_state.last_update = time.time()
+
+# Se passou 3 segundos, recarregar
+current_time = time.time()
+if current_time - st.session_state.last_update > 3:
+    st.session_state.last_update = current_time
+    # Forçar atualização silenciosa (comentar esta linha se quiser desabilitar auto-refresh)
+    # st.rerun()
 
 # ==================== VERIFICAÇÃO DE LOGIN ====================
 verificar_autenticacao()  # Se não logado, mostra tela de login e para
@@ -1656,6 +1664,7 @@ with col_principal:
         """, unsafe_allow_html=True)
         
         # ========== DEMANDAS PÚBLICAS PISCANDO (ITEM 10) ==========
+        # TODOS (incluindo ADMINS) podem ver e assumir demandas
         # CRÍTICO: Filtrar por usuario_logado, NÃO por quem tem o bastão
         usuario_logado = st.session_state.usuario_logado
         demandas_ativas = [
@@ -1952,22 +1961,25 @@ with col_principal:
                     
                     # Se direcionada, atribuir automaticamente
                     if colaborador_direcionado:
+                        # CRÍTICO: Verificar bastão ANTES de mudar status
+                        tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
+                        estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
+                        
+                        # Agora mudar o status
                         atividade_desc = f"[{setor}] {texto_limpo[:100]}"
                         st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
                         st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
                         
-                        # Se estava na fila, remover
-                        estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
-                        tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
-                        
+                        # Remover da fila
                         if estava_na_fila:
                             st.session_state.bastao_queue.remove(colaborador_direcionado)
                         
+                        # Desmarcar checkbox
                         st.session_state[f'check_{colaborador_direcionado}'] = False
                         
-                        # CRÍTICO: Se tinha bastão, passar para próximo
+                        # Se tinha bastão, passar para próximo
                         if tinha_bastao:
-                            rotate_bastao()  # Passa bastão automaticamente
+                            rotate_bastao()
                         
                         save_state()
                         st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
@@ -2266,22 +2278,25 @@ with col_principal:
                             
                             # Se direcionada, atribuir automaticamente
                             if colaborador_direcionado:
+                                # CRÍTICO: Verificar bastão ANTES de mudar status
+                                tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
+                                estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
+                                
+                                # Mudar status
                                 atividade_desc = f"[{setor}] {texto_limpo[:100]}"
                                 st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
                                 st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
                                 
-                                # Se estava na fila, remover
-                                estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
-                                tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
-                                
+                                # Remover da fila
                                 if estava_na_fila:
                                     st.session_state.bastao_queue.remove(colaborador_direcionado)
                                 
+                                # Desmarcar checkbox
                                 st.session_state[f'check_{colaborador_direcionado}'] = False
                                 
-                                # CRÍTICO: Se tinha bastão, passar para próximo
+                                # Se tinha bastão, passar para próximo
                                 if tinha_bastao:
-                                    rotate_bastao()  # Passa bastão automaticamente
+                                    rotate_bastao()
                                 
                                 save_state()
                                 st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
@@ -2398,19 +2413,26 @@ with col_disponibilidade:
         'indisponivel': []
     }
     
-    # CRÍTICO: Filtrar admins de todas as listas
+    # CRÍTICO: Filtrar admins (EXCETO: Em Demanda, Almoço, Saída rápida)
     from auth_system import is_usuario_admin
     
     for nome in COLABORADORES:
-        # PULAR admins - NÃO APARECEM EM NENHUMA LISTA
-        if is_usuario_admin(nome):
-            continue  # Pula para próximo colaborador
+        eh_admin = is_usuario_admin(nome)
+        status = st.session_state.status_texto.get(nome, 'Indisponível')
         
-        # A partir daqui, só processa NÃO-ADMINS
+        # Admin SÓ aparece se estiver em: Atividade, Almoço ou Saída rápida
+        if eh_admin:
+            pode_mostrar = (
+                'Atividade:' in status or 
+                status == 'Almoço' or 
+                status == 'Saída rápida'
+            )
+            if not pode_mostrar:
+                continue  # Pula admin em outros status
+        
+        # A partir daqui: NÃO-ADMINS ou ADMINS nos status permitidos
         if nome in st.session_state.bastao_queue:
             ui_lists['fila'].append(nome)
-        
-        status = st.session_state.status_texto.get(nome, 'Indisponível')
         
         if status == '' or status is None:
             pass
