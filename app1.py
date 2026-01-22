@@ -778,6 +778,42 @@ def rotate_bastao():
         save_state()
         st.rerun()
     else:
+        st.warning('⚠️ Não há próximo colaborador disponível.')
+
+def force_rotate_bastao(from_colaborador):
+    """
+    FORÇA passar o bastão sem validação (usado quando admin tira alguém da fila)
+    """
+    queue = st.session_state.bastao_queue
+    
+    # Remover bastão do colaborador atual
+    old_status = st.session_state.status_texto.get(from_colaborador, '')
+    new_status = old_status.replace('Bastão | ', '').replace('Bastão', '').strip()
+    st.session_state.status_texto[from_colaborador] = new_status
+    
+    # Se ainda tem gente na fila, dar bastão para o próximo
+    if queue:
+        # Pegar o primeiro da fila que está marcado
+        next_holder = None
+        for colaborador in queue:
+            if st.session_state.get(f'check_{colaborador}', False):
+                next_holder = colaborador
+                break
+        
+        if next_holder:
+            old_n_status = st.session_state.status_texto.get(next_holder, '')
+            new_n_status = f"Bastão | {old_n_status}" if old_n_status else "Bastão"
+            st.session_state.status_texto[next_holder] = new_n_status
+            st.session_state.bastao_start_time = now_brasilia()
+            st.session_state.bastao_counts[from_colaborador] = st.session_state.bastao_counts.get(from_colaborador, 0) + 1
+            save_state()
+        else:
+            # Ninguém marcado, chamar check_and_assume_baton
+            check_and_assume_baton()
+    else:
+        # Fila vazia
+        save_state()
+
         st.warning('⚠️ Não há próximo(a) colaborador(a) elegível na fila.')
         check_and_assume_baton()
 
@@ -1977,9 +2013,9 @@ with col_principal:
                         # Desmarcar checkbox
                         st.session_state[f'check_{colaborador_direcionado}'] = False
                         
-                        # Se tinha bastão, passar para próximo
+                        # Se tinha bastão, passar para próximo (SEM validação)
                         if tinha_bastao:
-                            rotate_bastao()
+                            force_rotate_bastao(colaborador_direcionado)
                         
                         save_state()
                         st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
@@ -2294,9 +2330,9 @@ with col_principal:
                                 # Desmarcar checkbox
                                 st.session_state[f'check_{colaborador_direcionado}'] = False
                                 
-                                # Se tinha bastão, passar para próximo
+                                # Se tinha bastão, passar para próximo (SEM validação)
                                 if tinha_bastao:
-                                    rotate_bastao()
+                                    force_rotate_bastao(colaborador_direcionado)
                                 
                                 save_state()
                                 st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
