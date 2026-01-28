@@ -23,7 +23,6 @@ from login_screen import verificar_autenticacao, mostrar_tela_login, fazer_logou
 from admin_bd_panel import mostrar_painel_admin_bd
 
 # Sistema de Estado Compartilhado
-from shared_state import SharedState
 
 # Timezone de Brasília
 BRASILIA_TZ = pytz.timezone('America/Sao_Paulo')
