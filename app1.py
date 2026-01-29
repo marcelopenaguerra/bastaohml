@@ -1935,7 +1935,7 @@ with col_principal:
     row1_c1, row1_c2, row1_c3 = st.columns(3)
     
     row1_c1.button('Almoço', on_click=update_status, args=('Almoço', True,), use_container_width=True)
-    row1_c2.button('Saída Rápida', on_click=update_status, args=('Saída rápida', True,), use_container_width=True)
+    row1_c2.button('Saída', on_click=update_status, args=('Saída rápida', True,), use_container_width=True)
     row1_c3.button('Ausente', on_click=update_status, args=('Ausente', True,), use_container_width=True)
     
     st.markdown("")
@@ -2740,7 +2740,7 @@ with col_disponibilidade:
                 
                 col_nome.markdown(f'**{nome}**')
                 
-                # Mostrar horário de saída E retorno na MESMA LINHA
+                # Mostrar horário de saída E retorno na MESMA LINHA (inline)
                 if title == 'Almoço' and nome in st.session_state.get('almoco_times', {}):
                     saida_time = st.session_state.almoco_times[nome]
                     if isinstance(saida_time, str):
@@ -2749,8 +2749,11 @@ with col_disponibilidade:
                     # Calcular hora de retorno (1 hora depois)
                     retorno_time = saida_time + timedelta(hours=1)
                     
-                    # Exibir na mesma linha
-                    col_nome.caption(f"🕐 Saiu: {saida_time.strftime('%H:%M')} | ⏰ Retorna: {retorno_time.strftime('%H:%M')}")
+                    # Exibir na mesma linha usando markdown
+                    col_nome.markdown(
+                        f"<small>🕐 Saiu: {saida_time.strftime('%H:%M')} | ⏰ Retorna: {retorno_time.strftime('%H:%M')}</small>",
+                        unsafe_allow_html=True
+                    )
                 
                 # Checkbox APENAS para admin
                 if is_admin:
