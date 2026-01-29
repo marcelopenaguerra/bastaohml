@@ -13,6 +13,7 @@ from streamlit_autorefresh import st_autorefresh
 import random
 import base64
 import os
+import html  # Sanitização HTML
 
 import json
 from pathlib import Path
@@ -92,16 +93,40 @@ def get_colaboradores():
 # PROBLEMA 6: Lista dinâmica (atualiza quando novo usuário é criado)
 COLABORADORES = get_colaboradores()
 
+# PERFORMANCE: Cache de admins (evita consultas repetidas ao BD)
+@st.cache_data(ttl=300)  # Cache por 5 minutos
+def get_admins_cache():
+    """
+    Retorna set de admins para consulta O(1)
+    Cache de 5 minutos para melhor performance
+    """
+    from auth_system import is_usuario_admin
+    return set([nome for nome in COLABORADORES if is_usuario_admin(nome)])
+
+# Inicializar cache
+try:
+    ADMINS_CACHE = get_admins_cache()
+except:
+    ADMINS_CACHE = set()
+
+def is_admin_cached(nome):
+    """Verifica se usuário é admin usando cache (mais rápido)"""
+    return nome in ADMINS_CACHE
+
 # --- FUNÇÃO GLOBAL DE LIMPEZA DE TEXTO ---
 def limpar_texto_demanda(texto):
     """
     Remove TODO e QUALQUER lixo do texto de demandas
     Aplicar em TODOS os lugares onde texto de demanda aparece
+    SEGURANÇA: Escapa HTML para prevenir XSS
     """
     if not texto:
         return ""
     
     texto_limpo = str(texto).strip()
+    
+    # SEGURANÇA: Escapar HTML antes de qualquer processamento
+    texto_limpo = html.escape(texto_limpo)
     
     # Camada 1: Remove prefixos específicos (arr, _ari, .arl, etc)
     texto_limpo = re.sub(r'^[._]*[a-z]*r[ril_]*\[', '[', texto_limpo, flags=re.IGNORECASE)
@@ -1378,9 +1403,9 @@ init_session_state()
 apply_modern_styles()
 
 # ==================== AUTO-REFRESH ====================
-# ==================== AUTO-REFRESH ====================
-# CRÍTICO: Auto-refresh ANTES de tudo para forçar sincronização
-st_autorefresh(interval=3000, key='auto_rerun_key')
+# Auto-refresh a cada 10 segundos (menos agressivo, evita perda de dados)
+# REDUZIDO de 3s para 10s para melhor UX ao digitar
+st_autorefresh(interval=10000, key='auto_rerun_key')
 
 # ==================== VERIFICAÇÃO DE LOGIN ====================
 verificar_autenticacao()  # Se não logado, mostra tela de login e para
