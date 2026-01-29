@@ -54,11 +54,78 @@ def init_database():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # Tabela de usuários COM USERNAME
+    # Verificar se tabela existe
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='usuarios'")
+    table_exists = c.fetchone() is not None
+    
+    if table_exists:
+        # MIGRAÇÃO: Verificar se coluna username existe
+        c.execute("PRAGMA table_info(usuarios)")
+        columns = [column[1] for column in c.fetchall()]
+        
+        if 'username' not in columns:
+            # MIGRAÇÃO NECESSÁRIA: Adicionar coluna username
+            print("⚠️ MIGRAÇÃO: Adicionando coluna 'username' ao banco existente...")
+            
+            try:
+                # Adicionar coluna username
+                c.execute("ALTER TABLE usuarios ADD COLUMN username TEXT")
+                
+                # Atualizar usernames baseado nos nomes existentes
+                # Mapeamento de nomes para usernames
+                username_map = {
+                    "Álvaro Rungue": "rungue",
+                    "Daniely Cristina Cunha Mesquita": "field90",
+                    "Celso Daniel Vilano Cardoso": "field240",
+                    "Cinthia Mery Facion": "field284",
+                    "Igor Eduardo Martins": "field255",
+                    "Leonardo Gonçalves Fleury": "field273",
+                    "Leonardo goncalves fleury": "field273",  # Variante
+                    "Marcio Rodrigues Alves": "field17",
+                    "Pollyanna Silva Pereira": "field155",
+                    "Rôner Ribeiro Júnior": "field249",
+                    "Roner Ribeiro Júnior": "field249",  # Variante
+                    "Marcelo dos Santos Dutra": "marcelo",
+                    "Frederico Augusto Costa Gonçalves": "field108",
+                    "Judson Heleno Faleiro": "field153",
+                    "Marcelo Batista Amaral": "field186",
+                    "Otávio Reis": "field199",
+                    "Ramon Shander de Almeida": "field178",
+                    "Rodrigo Marinho Marques": "field41",
+                    "Warley Roberto de Oliveira Cruz": "field111",
+                }
+                
+                # Buscar todos os usuários existentes
+                c.execute("SELECT id, nome FROM usuarios")
+                usuarios_existentes = c.fetchall()
+                
+                # Atualizar cada usuário com seu username
+                for user_id, nome in usuarios_existentes:
+                    username = username_map.get(nome)
+                    if username:
+                        c.execute("UPDATE usuarios SET username = ? WHERE id = ?", (username, user_id))
+                    else:
+                        # Se não encontrar no mapa, gerar username genérico
+                        username_gerado = f"user{user_id}"
+                        c.execute("UPDATE usuarios SET username = ? WHERE id = ?", (username_gerado, user_id))
+                        print(f"⚠️ Username genérico criado para '{nome}': {username_gerado}")
+                
+                # Tornar username UNIQUE e NOT NULL
+                # SQLite não permite ALTER COLUMN, então criar índice UNIQUE
+                c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_username ON usuarios(username)")
+                
+                conn.commit()
+                print("✅ MIGRAÇÃO concluída com sucesso!")
+                
+            except Exception as e:
+                print(f"❌ Erro na migração: {e}")
+                conn.rollback()
+    
+    # Criar tabela se não existir
     c.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
+            username TEXT UNIQUE,
             nome TEXT UNIQUE NOT NULL,
             senha_hash TEXT NOT NULL,
             is_admin INTEGER DEFAULT 0,
