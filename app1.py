@@ -2740,7 +2740,7 @@ with col_disponibilidade:
                 
                 col_nome.markdown(f'**{nome}**')
                 
-                # Mostrar horário de saída E retorno para almoço
+                # Mostrar horário de saída E retorno na MESMA LINHA
                 if title == 'Almoço' and nome in st.session_state.get('almoco_times', {}):
                     saida_time = st.session_state.almoco_times[nome]
                     if isinstance(saida_time, str):
@@ -2749,8 +2749,8 @@ with col_disponibilidade:
                     # Calcular hora de retorno (1 hora depois)
                     retorno_time = saida_time + timedelta(hours=1)
                     
-                    col_nome.caption(f"🕐 Saiu: {saida_time.strftime('%H:%M')}")
-                    col_nome.caption(f"⏰ Retorna: {retorno_time.strftime('%H:%M')}")
+                    # Exibir na mesma linha
+                    col_nome.caption(f"🕐 Saiu: {saida_time.strftime('%H:%M')} | ⏰ Retorna: {retorno_time.strftime('%H:%M')}")
                 
                 # Checkbox APENAS para admin
                 if is_admin:
