@@ -1935,7 +1935,7 @@ with col_principal:
     row1_c1, row1_c2, row1_c3 = st.columns(3)
     
     row1_c1.button('Almoço', on_click=update_status, args=('Almoço', True,), use_container_width=True)
-    row1_c2.button('Saída', on_click=update_status, args=('Saída rápida', True,), use_container_width=True)
+    row1_c2.button('Saída Rápida', on_click=update_status, args=('Saída rápida', True,), use_container_width=True)
     row1_c3.button('Ausente', on_click=update_status, args=('Ausente', True,), use_container_width=True)
     
     st.markdown("")
