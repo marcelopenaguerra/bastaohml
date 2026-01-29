@@ -119,12 +119,13 @@ def mostrar_tela_login():
         
         st.markdown("### 🔐 Login")
         
-        # Formulário de login
+        # Formulário de login COM USERNAME
         with st.form("login_form", clear_on_submit=False):
-            nome = st.selectbox(
-                "Colaborador(a):",
-                options=["Selecione..."] + listar_usuarios_ativos(),
-                key="login_nome"
+            username = st.text_input(
+                "Usuário/ID:",
+                placeholder="Ex: field90, rungue, marcelo...",
+                help="Digite seu username (field90) ou nome completo",
+                key="login_username"
             )
             
             senha = st.text_input(
@@ -151,17 +152,19 @@ def mostrar_tela_login():
                     - Admins: `admin123`
                     - Colaboradores: `user123`
                     
+                    Use seu username (Ex: field90, rungue) ou nome completo para fazer login.
+                    
                     Altere sua senha após o primeiro login!
                     """)
         
         # Processar login
         if login_button:
-            if nome == "Selecione...":
-                st.error("❌ Selecione um colaborador!")
+            if not username:
+                st.error("❌ Digite seu usuário/ID!")
             elif not senha:
                 st.error("❌ Digite sua senha!")
             else:
-                usuario = verificar_login(nome, senha)
+                usuario = verificar_login(username, senha)
                 
                 # Verificar se está bloqueado por rate limiting
                 if usuario and usuario.get('bloqueado'):
