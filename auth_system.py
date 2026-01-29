@@ -54,10 +54,11 @@ def init_database():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # Tabela de usuários
+    # Tabela de usuários COM USERNAME
     c.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
             nome TEXT UNIQUE NOT NULL,
             senha_hash TEXT NOT NULL,
             is_admin INTEGER DEFAULT 0,
@@ -72,42 +73,33 @@ def init_database():
     count = c.fetchone()[0]
     
     if count == 0:
-        # Criar admins iniciais
-        admins = [
-            ("Daniely Cristina Cunha Mesquita", "admin123"),
-            ("Marcio Rodrigues Alves", "admin123"),
-            ("Leonardo goncalves fleury", "admin123")
+        # Criar usuários com username (ID) conforme lista fornecida
+        usuarios_iniciais = [
+            # (username, nome, senha, is_admin)
+            ("rungue", "Álvaro Rungue", "admin123", 1),
+            ("field90", "Daniely Cristina Cunha Mesquita", "admin123", 1),
+            ("field240", "Celso Daniel Vilano Cardoso", "admin123", 1),
+            ("field284", "Cinthia Mery Facion", "admin123", 1),
+            ("field255", "Igor Eduardo Martins", "admin123", 1),
+            ("field273", "Leonardo Gonçalves Fleury", "admin123", 1),
+            ("field17", "Marcio Rodrigues Alves", "admin123", 1),
+            ("field155", "Pollyanna Silva Pereira", "admin123", 1),
+            ("field249", "Rôner Ribeiro Júnior", "admin123", 1),
+            ("marcelo", "Marcelo dos Santos Dutra", "admin123", 1),
+            ("field108", "Frederico Augusto Costa Gonçalves", "user123", 0),
+            ("field153", "Judson Heleno Faleiro", "user123", 0),
+            ("field186", "Marcelo Batista Amaral", "user123", 0),
+            ("field199", "Otávio Reis", "user123", 0),
+            ("field178", "Ramon Shander de Almeida", "user123", 0),
+            ("field41", "Rodrigo Marinho Marques", "user123", 0),
+            ("field111", "Warley Roberto de Oliveira Cruz", "user123", 0),
         ]
         
-        for nome, senha in admins:
+        for username, nome, senha, is_admin in usuarios_iniciais:
             senha_hash = hash_password(senha)
             c.execute(
-                "INSERT INTO usuarios (nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, 1, 0)",
-                (nome, senha_hash)
-            )
-        
-        # Criar colaboradores regulares - SENHA: user123
-        colaboradores = [
-            "Frederico Augusto Costa Gonçalves",
-            "Ramon Shander de Almeida",
-            "Marcelo Batista Amaral",
-            "Rodrigo Marinho Marques",
-            "Otávio Reis",
-            "Judson Heleno Faleiro",
-            "Roner Ribeiro Júnior",
-            "Warley Roberto de Oliveira Cruz",
-            "Igor Eduardo Martins",
-            "Marcelo dos Santos Dutra",
-            "Celso Daniel Vilano Cardoso",
-            "Pollyanna Silva Pereira",
-            "Cinthia Mery Facion"
-        ]
-        
-        for nome in colaboradores:
-            senha_hash = hash_password("user123")  # PROBLEMA 2: Senha padrão user123
-            c.execute(
-                "INSERT INTO usuarios (nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, 0, 1)",
-                (nome, senha_hash)
+                "INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, 0)",
+                (username, nome, senha_hash, is_admin)
             )
     
     conn.commit()
@@ -132,21 +124,26 @@ def verificar_login(nome, senha):
     c = conn.cursor()
     
     senha_hash = hash_password(senha)
+    
+    # Buscar por USERNAME ou NOME
     c.execute(
-        "SELECT id, nome, is_admin, ativo, primeiro_acesso FROM usuarios WHERE nome = ? AND senha_hash = ?",
-        (nome, senha_hash)
+        """SELECT id, username, nome, is_admin, ativo, primeiro_acesso 
+           FROM usuarios 
+           WHERE (username = ? OR nome = ?) AND senha_hash = ?""",
+        (nome, nome, senha_hash)
     )
     
     resultado = c.fetchone()
     conn.close()
     
-    if resultado and resultado[3]:  # Se encontrou e está ativo
+    if resultado and resultado[4]:  # Se encontrou e está ativo
         return {
             'id': resultado[0],
-            'nome': resultado[1],
-            'is_admin': bool(resultado[2]),
-            'ativo': bool(resultado[3]),
-            'primeiro_acesso': bool(resultado[4])  # PROBLEMA 2: Flag de primeiro acesso
+            'username': resultado[1],
+            'nome': resultado[2],  # NOME COMPLETO para exibição
+            'is_admin': bool(resultado[3]),
+            'ativo': bool(resultado[4]),
+            'primeiro_acesso': bool(resultado[5])
         }
     return None
 
@@ -159,15 +156,22 @@ def listar_usuarios_ativos():
     conn.close()
     return usuarios
 
-def adicionar_usuario(nome, senha, is_admin=False):
-    """Adiciona novo usuário"""
+def adicionar_usuario(username, nome, senha, is_admin=False):
+    """
+    Adiciona novo usuário com USERNAME
+    Args:
+        username: ID/username (field90, rungue, etc)
+        nome: Nome completo
+        senha: Senha inicial
+        is_admin: Se é administrador
+    """
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         senha_hash = hash_password(senha)
         c.execute(
-            "INSERT INTO usuarios (nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, 1)",
-            (nome, senha_hash, 1 if is_admin else 0)
+            "INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, 1)",
+            (username, nome, senha_hash, 1 if is_admin else 0)
         )
         conn.commit()
         conn.close()
