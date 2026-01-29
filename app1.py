@@ -2092,7 +2092,7 @@ with col_principal:
             
             with col_p2:
                 setor = st.selectbox("Setor:",
-                                    options=["Presidência","Gabinete, "Plenário","Geral"],
+                                    options=["Presidência","Gabinete","Plenário","Geral"],
                                     key="toolbar_setor")
             
             # Direcionar para colaborador específico
