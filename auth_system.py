@@ -2,9 +2,45 @@ import sqlite3
 import hashlib
 import streamlit as st
 from pathlib import Path
+import time
 
 # Caminho do banco de dados
 DB_PATH = Path("bastao_users.db")
+
+# Sistema de Rate Limiting (proteção contra brute force)
+LOGIN_ATTEMPTS = {}  # {username: [timestamp1, timestamp2, ...]}
+
+def rate_limit_login(username, max_attempts=5, window=300):
+    """
+    Limita tentativas de login a 5 por 5 minutos
+    
+    Args:
+        username: Nome do usuário
+        max_attempts: Máximo de tentativas permitidas (padrão: 5)
+        window: Janela de tempo em segundos (padrão: 300 = 5 minutos)
+    
+    Returns:
+        bool: True se pode tentar, False se bloqueado
+    """
+    now = time.time()
+    
+    if username not in LOGIN_ATTEMPTS:
+        LOGIN_ATTEMPTS[username] = []
+    
+    # Limpar tentativas antigas (fora da janela)
+    LOGIN_ATTEMPTS[username] = [
+        t for t in LOGIN_ATTEMPTS[username] 
+        if now - t < window
+    ]
+    
+    # Verificar se excedeu limite
+    if len(LOGIN_ATTEMPTS[username]) >= max_attempts:
+        tempo_restante = int(window - (now - LOGIN_ATTEMPTS[username][0]))
+        return False, tempo_restante
+    
+    # Registrar tentativa
+    LOGIN_ATTEMPTS[username].append(now)
+    return True, 0
 
 def hash_password(password):
     """Hash de senha com SHA-256"""
@@ -78,7 +114,20 @@ def init_database():
     conn.close()
 
 def verificar_login(nome, senha):
-    """Verifica credenciais e retorna dados do usuário"""
+    """
+    Verifica credenciais e retorna dados do usuário
+    SEGURANÇA: Rate limiting de 5 tentativas por 5 minutos
+    """
+    # RATE LIMITING: Verificar se usuário não está bloqueado
+    pode_tentar, tempo_restante = rate_limit_login(nome)
+    if not pode_tentar:
+        minutos = tempo_restante // 60
+        segundos = tempo_restante % 60
+        return {
+            'bloqueado': True,
+            'mensagem': f"Muitas tentativas. Tente novamente em {minutos}min {segundos}s"
+        }
+    
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
