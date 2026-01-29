@@ -2356,27 +2356,28 @@ with col_principal:
                 # TAB 1: Cadastrar Colaborador
                 with tab1:
                     st.markdown("#### Adicionar Novo Colaborador")
+                    novo_username = st.text_input("Username/ID:", placeholder="Ex: field108, field153...", key="admin_novo_username", help="Username para login (field108, rungue, etc)")
                     novo_nome = st.text_input("Nome completo:", key="admin_novo_colab")
                     nova_senha = st.text_input("Senha inicial:", type="password", value="user123", key="admin_nova_senha")
                     is_admin_novo = st.checkbox("É administrador?", key="admin_is_admin")
                     
                     if st.button("Adicionar Colaborador", key="btn_add_colab", type="primary"):
-                        if novo_nome:
+                        if novo_username and novo_nome:
                             from auth_system import adicionar_usuario
-                            sucesso = adicionar_usuario(novo_nome, nova_senha, is_admin_novo)
+                            sucesso = adicionar_usuario(novo_username, novo_nome, nova_senha, is_admin_novo)
                             if sucesso:
                                 # Inicializar estados
                                 st.session_state.status_texto[novo_nome] = 'Indisponível'
                                 st.session_state.bastao_counts[novo_nome] = 0
                                 st.session_state[f'check_{novo_nome}'] = False
                                 save_state()
-                                st.success(f"✅ {novo_nome} cadastrado com sucesso!")
+                                st.success(f"✅ {novo_nome} cadastrado com sucesso! Username: {novo_username}")
                                 time.sleep(1)
                                 st.rerun()
                             else:
-                                st.error("❌ Colaborador já existe no banco de dados!")
+                                st.error("❌ Username ou nome já existe no banco de dados!")
                         else:
-                            st.warning("⚠️ Digite o nome completo!")
+                            st.warning("⚠️ Preencha username e nome completo!")
                 
                 # TAB 2: Gerenciar Demandas
                 with tab2:
