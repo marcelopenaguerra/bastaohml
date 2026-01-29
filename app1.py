@@ -24,6 +24,7 @@ from admin_bd_panel import mostrar_painel_admin_bd
 
 # Sistema de Estado Compartilhado
 from shared_state import SharedState
+
 # Timezone de Brasília
 BRASILIA_TZ = pytz.timezone('America/Sao_Paulo')
 
@@ -1701,11 +1702,20 @@ with col_principal:
             )
         ]
         
+        # ORDENAR por prioridade: Urgente > Alta > Média > Baixa
+        prioridade_ordem = {'Urgente': 0, 'Alta': 1, 'Média': 2, 'Baixa': 3}
+        demandas_ativas = sorted(
+            demandas_ativas, 
+            key=lambda d: prioridade_ordem.get(d.get('prioridade', 'Média'), 2)
+        )
+        
         if demandas_ativas:
-            # Header com contador
+            # Header com contador (mostra total, mas exibe apenas 3)
+            total_demandas = len(demandas_ativas)
             st.markdown(f"""
             <div class="demand-alert">
-                <strong>{len(demandas_ativas)} DEMANDA(S) DISPONÍVEL(EIS) PARA ADESÃO</strong>
+                <strong>{total_demandas} DEMANDA(S) DISPONÍVEL(EIS) PARA ADESÃO</strong>
+                {'<br><small style="opacity: 0.8;">Mostrando as 3 mais urgentes</small>' if total_demandas > 3 else ''}
             </div>
             """, unsafe_allow_html=True)
             
@@ -1773,8 +1783,8 @@ with col_principal:
             </style>
             """, unsafe_allow_html=True)
             
-            # Mostrar TODAS as demandas em formato compacto
-            for dem in demandas_ativas:
+            # Mostrar APENAS as 3 primeiras demandas (ordenadas por prioridade)
+            for dem in demandas_ativas[:3]:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 texto_limpo = limpar_texto_demanda(dem['texto'])
@@ -2006,7 +2016,7 @@ with col_principal:
             
             with col_p2:
                 setor = st.selectbox("Setor:",
-                                    options=["Desembargador(a)","Presidência","Plenário","Geral"],
+                                    options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
                                     key="toolbar_setor")
             
             # Direcionar para colaborador específico
@@ -2094,6 +2104,38 @@ with col_principal:
                     st.rerun()
                 else:
                     st.warning("Digite a descrição da demanda!")
+            
+            # ========== LISTAR DEMANDAS ATIVAS ==========
+            st.markdown("---")
+            st.markdown("#### Demandas Ativas")
+            if st.session_state.get('demandas_publicas', []):
+                demandas_para_mostrar = [d for d in st.session_state.demandas_publicas if d.get('ativa', True)]
+                
+                if demandas_para_mostrar:
+                    for dem in demandas_para_mostrar:
+                        col1, col2 = st.columns([0.9, 0.1])
+                        
+                        setor_tag = dem.get('setor', 'Geral')
+                        prioridade_tag = dem.get('prioridade', 'Média')
+                        direcionado = dem.get('direcionada_para')
+                        
+                        # LIMPEZA GLOBAL
+                        texto_limpo = limpar_texto_demanda(dem['texto'])
+                        
+                        texto_exibicao = f"[{setor_tag}] [{prioridade_tag}] {texto_limpo[:50]}..."
+                        if direcionado:
+                            texto_exibicao = f"→ {direcionado}: " + texto_exibicao
+                        
+                        col1.write(f"**{dem['id']}.** {texto_exibicao}")
+                        
+                        if col2.button("✕", key=f"del_toolbar_dem_{dem['id']}"):
+                            dem['ativa'] = False
+                            save_admin_data()
+                            st.rerun()
+                else:
+                    st.info("Nenhuma demanda ativa no momento.")
+            else:
+                st.info("Nenhuma demanda cadastrada ainda.")
     
     # View de Erro/Novidade
     if st.session_state.active_view == "erro_novidade":
