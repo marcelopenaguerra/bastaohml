@@ -615,6 +615,8 @@ def init_session_state():
         'colaboradores_extras': [],
         'demandas_publicas': [],
         'almoco_times': {},
+        'saida_rapida_times': {},
+        'logout_times': {},
         'demanda_logs': [],
         'demanda_start_times': {}
     }
@@ -855,6 +857,12 @@ def update_status(new_status_part, force_exit_queue=False):
     if new_status_part == 'Almoço':
         st.session_state.almoco_times[selected] = now_brasilia()
     
+    # Registrar horário de saída rápida
+    if new_status_part == 'Saída rápida':
+        if 'saida_rapida_times' not in st.session_state:
+            st.session_state.saida_rapida_times = {}
+        st.session_state.saida_rapida_times[selected] = now_brasilia()
+    
     # Registrar início de demanda/atividade
     if 'Atividade:' in new_status_part or force_exit_queue:
         if selected not in st.session_state.demanda_start_times:
@@ -923,6 +931,10 @@ def leave_specific_status(colaborador, status_type_to_remove):
         # Limpar tempo de almoço se estava em almoço
         if status_type_to_remove == 'Almoço' and colaborador in st.session_state.get('almoco_times', {}):
             del st.session_state.almoco_times[colaborador]
+        
+        # Limpar tempo de saída rápida se estava em saída rápida
+        if status_type_to_remove == 'Saída rápida' and colaborador in st.session_state.get('saida_rapida_times', {}):
+            del st.session_state.saida_rapida_times[colaborador]
     
     check_and_assume_baton()
     save_state()  # SALVAR ESTADO
@@ -1003,6 +1015,36 @@ def check_almoco_timeout():
             
             st.info(f"⏰ {nome} retornou automaticamente do almoço após 1 hora.")
             st.rerun()
+
+def check_saida_rapida_timeout():
+    """Verifica se alguém está há mais de 15 min em saída rápida e retorna automaticamente"""
+    now = now_brasilia()
+    saida_rapida_times = st.session_state.get('saida_rapida_times', {})
+    
+    for nome in list(saida_rapida_times.keys()):
+        saida_time = saida_rapida_times[nome]
+        if isinstance(saida_time, str):
+            saida_time = datetime.fromisoformat(saida_time)
+        
+        elapsed_minutes = (now - saida_time).total_seconds() / 60
+        
+        if elapsed_minutes >= 15.0:  # 15 minutos
+            # Remover de saída rápida
+            if st.session_state.status_texto.get(nome) == 'Saída rápida':
+                st.session_state.status_texto[nome] = ''
+            
+            # Voltar para fila
+            if nome not in st.session_state.bastao_queue:
+                st.session_state.bastao_queue.append(nome)
+                st.session_state[f'check_{nome}'] = True
+            
+            # Limpar registro
+            del st.session_state.saida_rapida_times[nome]
+            save_state()
+            
+            st.info(f"⏰ {nome} retornou automaticamente da saída rápida após 15 minutos.")
+            st.rerun()
+
 
 
 def gerar_html_relatorio(logs_filtrados):
@@ -1470,6 +1512,9 @@ st.markdown("---")
 # Verificar timeout de almoço (1 hora)
 check_almoco_timeout()
 
+# Verificar timeout de saída rápida (15 minutos)
+check_saida_rapida_timeout()
+
 # ==================== HEADER ====================
 # Título centralizado no topo
 st.markdown("""
@@ -1531,6 +1576,12 @@ with col_user_header:
     if st.button("Sair", help="Fazer Logout", use_container_width=True, key="btn_logout_header"):
         usuario_atual = st.session_state.usuario_logado
         if usuario_atual:
+            # Registrar horário de logout
+            if 'logout_times' not in st.session_state:
+                st.session_state.logout_times = {}
+            st.session_state.logout_times[usuario_atual] = now_brasilia()
+            
+            # Remover da fila
             if usuario_atual in st.session_state.bastao_queue:
                 st.session_state.bastao_queue.remove(usuario_atual)
             st.session_state.status_texto[usuario_atual] = 'Ausente'
@@ -1931,7 +1982,7 @@ with col_principal:
     
     st.markdown("")
     
-    # Status: Almoço, Saída, Ausente
+    # Status: Almoço, Saída Rápida, Ausente
     row1_c1, row1_c2, row1_c3 = st.columns(3)
     
     row1_c1.button('Almoço', on_click=update_status, args=('Almoço', True,), use_container_width=True)
@@ -2740,7 +2791,7 @@ with col_disponibilidade:
                 
                 col_nome.markdown(f'**{nome}**')
                 
-                # Mostrar horário de saída E retorno na MESMA LINHA (inline)
+                # Mostrar horário de saída E retorno para ALMOÇO (1 hora)
                 if title == 'Almoço' and nome in st.session_state.get('almoco_times', {}):
                     saida_time = st.session_state.almoco_times[nome]
                     if isinstance(saida_time, str):
@@ -2752,6 +2803,33 @@ with col_disponibilidade:
                     # Exibir na mesma linha usando markdown
                     col_nome.markdown(
                         f"<small>🕐 Saiu: {saida_time.strftime('%H:%M')} | ⏰ Retorna: {retorno_time.strftime('%H:%M')}</small>",
+                        unsafe_allow_html=True
+                    )
+                
+                # Mostrar horário de saída E retorno para SAÍDA RÁPIDA (15 min)
+                if title == 'Saída rápida' and nome in st.session_state.get('saida_rapida_times', {}):
+                    saida_time = st.session_state.saida_rapida_times[nome]
+                    if isinstance(saida_time, str):
+                        saida_time = datetime.fromisoformat(saida_time)
+                    
+                    # Calcular hora de retorno (15 minutos depois)
+                    retorno_time = saida_time + timedelta(minutes=15)
+                    
+                    # Exibir na mesma linha usando markdown
+                    col_nome.markdown(
+                        f"<small>🕐 Saiu: {saida_time.strftime('%H:%M')} | ⏰ Retorna: {retorno_time.strftime('%H:%M')}</small>",
+                        unsafe_allow_html=True
+                    )
+                
+                # Mostrar horário de LOGOUT para AUSENTE
+                if title == 'Ausente' and nome in st.session_state.get('logout_times', {}):
+                    logout_time = st.session_state.logout_times[nome]
+                    if isinstance(logout_time, str):
+                        logout_time = datetime.fromisoformat(logout_time)
+                    
+                    # Exibir hora e data do logout
+                    col_nome.markdown(
+                        f"<small>🚪 Saiu às {logout_time.strftime('%H:%M')} - {logout_time.strftime('%d/%m/%Y')}</small>",
                         unsafe_allow_html=True
                     )
                 
