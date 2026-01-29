@@ -163,7 +163,10 @@ def mostrar_tela_login():
             else:
                 usuario = verificar_login(nome, senha)
                 
-                if usuario:
+                # Verificar se está bloqueado por rate limiting
+                if usuario and usuario.get('bloqueado'):
+                    st.error(f"🔒 {usuario['mensagem']}")
+                elif usuario:
                     # Login bem-sucedido
                     st.session_state.logged_in = True
                     st.session_state.usuario_logado = usuario['nome']
