@@ -1486,7 +1486,6 @@ st.markdown("---")
 check_almoco_timeout()
 
 # Verificar timeout de saída rápida (15 minutos)
-check_saida_rapida_timeout()
 
 # ==================== HEADER ====================
 # Título centralizado no topo
