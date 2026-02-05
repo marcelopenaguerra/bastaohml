@@ -2297,6 +2297,16 @@ with col_principal:
                         if f"{l.get('timestamp', '')}{l.get('colaborador', '')}" not in st.session_state.registros_ocultos
                     ]
                 
+                # Mostrar resumo dos filtros ativos
+                filtros_info = []
+                if tipo_filtro != "Todos":
+                    filtros_info.append(f"**Tipo:** {tipo_filtro}")
+                if colaborador_filtro != "Todos":
+                    filtros_info.append(f"**Colaborador:** {colaborador_filtro}")
+                
+                if filtros_info:
+                    st.info(f"🔍 Filtros ativos: {' | '.join(filtros_info)}")
+                
                 st.markdown(f"#### 📋 Exibindo {len(logs_filtrados)} registro(s)")
                 
                 # Exibir logs
@@ -2432,8 +2442,16 @@ with col_principal:
                         st.rerun()
                 
                 with col_a2:
-                    # Exportar para HTML
+                    # Exportar para HTML (COM FILTROS APLICADOS)
                     if st.button("📥 Gerar Relatório HTML", use_container_width=True):
+                        # Criar descrição dos filtros ativos
+                        filtros_ativos = []
+                        if tipo_filtro != "Todos":
+                            filtros_ativos.append(f"Tipo: {tipo_filtro}")
+                        if colaborador_filtro != "Todos":
+                            filtros_ativos.append(f"Colaborador: {colaborador_filtro}")
+                        
+                        # Gerar HTML com os logs FILTRADOS
                         html_content = gerar_html_relatorio(logs_filtrados)
                         
                         # Botão de download
@@ -2444,9 +2462,15 @@ with col_principal:
                             mime="text/html"
                         )
                         
-                        # Exibir preview
-                        st.success("✅ Relatório gerado! Clique no botão acima para baixar e abrir em nova aba.")
-                        st.info("💡 Dica: Após baixar, clique duas vezes no arquivo .html para abrir no navegador")
+                        # Exibir preview com info dos filtros
+                        st.success(f"✅ Relatório gerado com {len(logs_filtrados)} registro(s)!")
+                        
+                        if filtros_ativos:
+                            st.info(f"🔍 Filtros aplicados: {' | '.join(filtros_ativos)}")
+                        else:
+                            st.info("📊 Relatório completo (sem filtros)")
+                        
+                        st.caption("💡 Dica: Após baixar, clique duas vezes no arquivo .html para abrir no navegador")
     
     # ==================== PAINEL ADMIN BD ====================
     # ==================== PAINEL ADMIN ====================
