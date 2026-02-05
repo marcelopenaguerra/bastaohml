@@ -153,12 +153,19 @@ def limpar_texto_demanda(texto):
     return texto_limpo
 
 # --- Constantes de Opções ---
-REG_USUARIO_OPCOES = ["Desembargador(a)", "Cartório","Plenário", "Setores Administrativos", "Externo"]
+REG_USUARIO_OPCOES = ["Cartório", "Externo"]
+REG_SISTEMA_OPCOES = ["Conveniados", "Outros", "Eproc", "Themis", "JPE", "SIAP"]
 REG_CANAL_OPCOES = ["Presencial", "Telefone", "Email", "Whatsapp", "Outros"]
 REG_DESFECHO_OPCOES = ["Resolvido - Informática", "Escalonado"]
 
 
+# Emoji do Bastão (removido - sem emoji)
+BASTAO_EMOJI = ""
+
+# ============================================
 # FUNÇÕES AUXILIARES
+# ============================================
+
 
 def save_state():
     """Salva estado atual - USA SHARED STATE"""
@@ -2086,7 +2093,7 @@ with col_principal:
             
             with col_p2:
                 setor = st.selectbox("Setor:",
-                                    options=["Presidência", "Desembargador(a)", "Geral", "Cartório", "Gabinete"],
+                                    options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
                                     key="toolbar_setor")
             
             # Direcionar para colaborador específico
