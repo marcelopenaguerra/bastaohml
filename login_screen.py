@@ -7,7 +7,7 @@ import time
 # ==================== SISTEMA DE TOKENS SEGUROS ====================
 # Gera tokens únicos por sessão que expiram
 SESSION_TOKENS = {}  # {token: {'usuario': nome, 'expira': timestamp}}
-TOKEN_DURACAO = 3600  # 1 hora
+TOKEN_DURACAO = 28800  # 8 horas (jornada de trabalho)
 
 def gerar_token_seguro(usuario_nome):
     """Gera token único e seguro para o usuário"""
@@ -37,6 +37,12 @@ def validar_token(token):
     if time.time() > token_data['expira']:
         del SESSION_TOKENS[token]
         return None
+    
+    # RENOVAÇÃO AUTOMÁTICA: Se faltam menos de 1 hora, renovar por mais 8 horas
+    tempo_restante = token_data['expira'] - time.time()
+    if tempo_restante < 3600:  # Menos de 1 hora restante
+        SESSION_TOKENS[token]['expira'] = time.time() + TOKEN_DURACAO
+        # print(f"🔄 Token renovado para {token_data['usuario']} (+ 8 horas)")
     
     return token_data['usuario']
 
@@ -201,13 +207,25 @@ def verificar_autenticacao():
         token = st.session_state.get('auth_token')
         if token:
             usuario_validado = validar_token(token)
-            if not usuario_validado or usuario_validado != st.session_state.usuario_logado:
-                # Token inválido ou expirado - forçar logout
+            if not usuario_validado:
+                # Token expirado - forçar logout
                 st.session_state.logged_in = False
                 st.session_state.usuario_logado = None
                 st.warning("⚠️ Sessão expirada. Faça login novamente.")
                 mostrar_tela_login()
                 st.stop()
+            elif usuario_validado != st.session_state.usuario_logado:
+                # Token válido mas usuário diferente - erro crítico
+                st.error("❌ Erro de autenticação. Faça login novamente.")
+                st.session_state.logged_in = False
+                mostrar_tela_login()
+                st.stop()
+            # Token válido - continuar (com renovação automática já feita em validar_token)
+        else:
+            # Sem token mas marcado como logado - inconsistência
+            st.session_state.logged_in = False
+            mostrar_tela_login()
+            st.stop()
     
     # Tentar restaurar sessão da URL (APENAS SE TOKEN VÁLIDO)
     if not st.session_state.get('logged_in', False):
