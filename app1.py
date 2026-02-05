@@ -618,7 +618,8 @@ def init_session_state():
         'saida_rapida_times': {},
         'logout_times': {},
         'demanda_logs': [],
-        'demanda_start_times': {}
+        'demanda_start_times': {},
+        'registros_ocultos': []
     }
     
     # Tentar carregar estado salvo
@@ -2092,7 +2093,7 @@ with col_principal:
             
             with col_p2:
                 setor = st.selectbox("Setor:",
-                                    options=["Presidência","Gabinete","Plenário","Geral"],
+                                    options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
                                     key="toolbar_setor")
             
             # Direcionar para colaborador específico
@@ -2289,6 +2290,13 @@ with col_principal:
                 if colaborador_filtro != "Todos":
                     logs_filtrados = [l for l in logs_filtrados if l.get('colaborador') == colaborador_filtro]
                 
+                # Filtrar registros ocultos
+                if 'registros_ocultos' in st.session_state and st.session_state.registros_ocultos:
+                    logs_filtrados = [
+                        l for l in logs_filtrados 
+                        if f"{l.get('timestamp', '')}{l.get('colaborador', '')}" not in st.session_state.registros_ocultos
+                    ]
+                
                 st.markdown(f"#### 📋 Exibindo {len(logs_filtrados)} registro(s)")
                 
                 # Exibir logs
@@ -2315,6 +2323,15 @@ with col_principal:
                             st.markdown(f"**📝 Descrição:** {log.get('descricao', 'N/A')}")
                             st.markdown(f"**📞 Canal:** {log.get('canal', 'N/A')}")
                             st.markdown(f"**✅ Desfecho:** {log.get('desfecho', 'N/A')}")
+                            
+                            # Botão deletar (APENAS ADMIN)
+                            if st.session_state.get('is_admin', False):
+                                if st.button("🗑️ Deletar este registro", key=f"del_log_{idx}_{timestamp.timestamp()}"):
+                                    st.session_state.daily_logs.remove(log)
+                                    save_state()
+                                    st.success("✅ Registro deletado!")
+                                    time.sleep(0.5)
+                                    st.rerun()
                     
                     elif log.get('tipo') == 'demanda':
                         # Demanda Concluída (ITEM 7)
@@ -2341,6 +2358,17 @@ with col_principal:
                                     st.markdown(f"**🕐 Fim:** {fim}")
                             
                             st.markdown(f"**⏱️ Duração:** {duracao_min:.0f} minutos ({duracao_min/60:.1f} horas)")
+                            
+                            # Botão deletar (APENAS ADMIN)
+                            if st.session_state.get('is_admin', False):
+                                if st.button("🗑️ Deletar este registro", key=f"del_log_demanda_{idx}_{timestamp.timestamp()}"):
+                                    st.session_state.daily_logs.remove(log)
+                                    if log in st.session_state.get('demanda_logs', []):
+                                        st.session_state.demanda_logs.remove(log)
+                                    save_state()
+                                    st.success("✅ Registro deletado!")
+                                    time.sleep(0.5)
+                                    st.rerun()
                     
                     elif 'inicio' in log and 'tempo' in log:
                         # Horas Extras
@@ -2350,6 +2378,15 @@ with col_principal:
                             st.markdown(f"**🕐 Início:** {log.get('inicio', 'N/A')}")
                             st.markdown(f"**⏱️ Tempo Total:** {log.get('tempo', 'N/A')}")
                             st.markdown(f"**📝 Motivo:** {log.get('motivo', 'N/A')}")
+                            
+                            # Botão deletar (APENAS ADMIN)
+                            if st.session_state.get('is_admin', False):
+                                if st.button("🗑️ Deletar este registro", key=f"del_log_horas_{idx}_{timestamp.timestamp()}"):
+                                    st.session_state.daily_logs.remove(log)
+                                    save_state()
+                                    st.success("✅ Registro deletado!")
+                                    time.sleep(0.5)
+                                    st.rerun()
                     
                     elif 'titulo' in log and 'relato' in log:
                         # Erro/Novidade
@@ -2362,6 +2399,15 @@ with col_principal:
                             st.text(log.get('relato', 'N/A'))
                             st.markdown(f"**🏁 Resultado:**")
                             st.text(log.get('resultado', 'N/A'))
+                            
+                            # Botão deletar (APENAS ADMIN)
+                            if st.session_state.get('is_admin', False):
+                                if st.button("🗑️ Deletar este registro", key=f"del_log_erro_{idx}_{timestamp.timestamp()}"):
+                                    st.session_state.daily_logs.remove(log)
+                                    save_state()
+                                    st.success("✅ Registro deletado!")
+                                    time.sleep(0.5)
+                                    st.rerun()
                 
                 st.markdown("---")
                 
@@ -2369,9 +2415,19 @@ with col_principal:
                 col_a1, col_a2 = st.columns(2)
                 
                 with col_a1:
-                    if st.button("🗑️ Limpar Todos os Registros", use_container_width=True):
-                        st.session_state.daily_logs = []
-                        st.success("✅ Registros limpos!")
+                    if st.button("👁️ Ocultar Todos (nesta tela)", use_container_width=True):
+                        # Criar lista de registros ocultos
+                        if 'registros_ocultos' not in st.session_state:
+                            st.session_state.registros_ocultos = []
+                        
+                        # Adicionar todos os registros filtrados à lista de ocultos
+                        for log in logs_filtrados:
+                            log_id = f"{log.get('timestamp', '')}{log.get('colaborador', '')}"
+                            if log_id not in st.session_state.registros_ocultos:
+                                st.session_state.registros_ocultos.append(log_id)
+                        
+                        st.success("✅ Registros ocultados desta tela! (Dados preservados)")
+                        st.info("💡 Para ver novamente, feche e reabra Relatórios")
                         time.sleep(1)
                         st.rerun()
                 
