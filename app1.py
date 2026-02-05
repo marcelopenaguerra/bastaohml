@@ -1017,6 +1017,34 @@ def check_almoco_timeout():
             st.info(f"⏰ {nome} retornou automaticamente do almoço após 1 hora.")
             st.rerun()
 
+def check_saida_rapida_timeout():
+    """Verifica se alguém está há mais de 15 min em saída rápida e retorna automaticamente"""
+    now = now_brasilia()
+    saida_rapida_times = st.session_state.get('saida_rapida_times', {})
+    
+    for nome in list(saida_rapida_times.keys()):
+        saida_time = saida_rapida_times[nome]
+        if isinstance(saida_time, str):
+            saida_time = datetime.fromisoformat(saida_time)
+        
+        elapsed_minutes = (now - saida_time).total_seconds() / 60
+        
+        if elapsed_minutes >= 15.0:  # 15 minutos
+            # Remover de saída rápida
+            if st.session_state.status_texto.get(nome) == 'Saída rápida':
+                st.session_state.status_texto[nome] = ''
+            
+            # Voltar para fila
+            if nome not in st.session_state.bastao_queue:
+                st.session_state.bastao_queue.append(nome)
+                st.session_state[f'check_{nome}'] = True
+            
+            # Limpar registro
+            del st.session_state.saida_rapida_times[nome]
+            save_state()
+            
+            st.info(f"⏰ {nome} retornou automaticamente da saída rápida após 15 minutos.")
+            st.rerun()
 
 
 
@@ -1486,6 +1514,7 @@ st.markdown("---")
 check_almoco_timeout()
 
 # Verificar timeout de saída rápida (15 minutos)
+check_saida_rapida_timeout()
 
 # ==================== HEADER ====================
 # Título centralizado no topo
@@ -2231,7 +2260,7 @@ with col_principal:
                 
                 # Filtros
                 st.markdown("#### 🔍 Filtros")
-                col_f1, col_f2 = st.columns(2)
+                col_f1, col_f2, col_f3 = st.columns(3)
                 
                 with col_f1:
                     tipo_filtro = st.selectbox(
@@ -2246,11 +2275,29 @@ with col_principal:
                         ["Todos"] + sorted(colaboradores_nos_logs)
                     )
                 
+                with col_f3:
+                    periodo_filtro = st.selectbox(
+                        "Período:",
+                        ["Todos", "Hoje", "Últimos 7 dias", "Últimos 30 dias", "Este mês", "Mês passado", "Personalizado"]
+                    )
+                
+                # Filtro de data personalizado
+                data_inicio = None
+                data_fim = None
+                
+                if periodo_filtro == "Personalizado":
+                    col_d1, col_d2 = st.columns(2)
+                    with col_d1:
+                        data_inicio = st.date_input("Data Início:", value=now_brasilia().date() - timedelta(days=30))
+                    with col_d2:
+                        data_fim = st.date_input("Data Fim:", value=now_brasilia().date())
+                
                 st.markdown("---")
                 
                 # Filtrar logs
                 logs_filtrados = logs.copy()
                 
+                # Filtro por tipo
                 if tipo_filtro == "Atendimentos":
                     logs_filtrados = [l for l in logs_filtrados if 'usuario' in l]
                 elif tipo_filtro == "Erros/Novidades":
@@ -2258,8 +2305,50 @@ with col_principal:
                 elif tipo_filtro == "Demandas Concluídas":
                     logs_filtrados = [l for l in logs_filtrados if l.get('tipo') == 'demanda']
                 
+                # Filtro por colaborador
                 if colaborador_filtro != "Todos":
                     logs_filtrados = [l for l in logs_filtrados if l.get('colaborador') == colaborador_filtro]
+                
+                # Filtro por período
+                if periodo_filtro != "Todos":
+                    now = now_brasilia()
+                    
+                    if periodo_filtro == "Hoje":
+                        data_inicio = now.date()
+                        data_fim = now.date()
+                    elif periodo_filtro == "Últimos 7 dias":
+                        data_inicio = (now - timedelta(days=7)).date()
+                        data_fim = now.date()
+                    elif periodo_filtro == "Últimos 30 dias":
+                        data_inicio = (now - timedelta(days=30)).date()
+                        data_fim = now.date()
+                    elif periodo_filtro == "Este mês":
+                        data_inicio = now.replace(day=1).date()
+                        data_fim = now.date()
+                    elif periodo_filtro == "Mês passado":
+                        primeiro_dia_mes_atual = now.replace(day=1)
+                        ultimo_dia_mes_passado = primeiro_dia_mes_atual - timedelta(days=1)
+                        primeiro_dia_mes_passado = ultimo_dia_mes_passado.replace(day=1)
+                        data_inicio = primeiro_dia_mes_passado.date()
+                        data_fim = ultimo_dia_mes_passado.date()
+                    # Personalizado já tem data_inicio e data_fim definidos acima
+                    
+                    # Aplicar filtro de data
+                    if data_inicio and data_fim:
+                        logs_filtrados_por_data = []
+                        for log in logs_filtrados:
+                            timestamp = log.get('timestamp', now_brasilia())
+                            if isinstance(timestamp, str):
+                                try:
+                                    timestamp = datetime.fromisoformat(timestamp)
+                                except:
+                                    timestamp = now_brasilia()
+                            
+                            log_date = timestamp.date()
+                            if data_inicio <= log_date <= data_fim:
+                                logs_filtrados_por_data.append(log)
+                        
+                        logs_filtrados = logs_filtrados_por_data
                 
                 # Filtrar registros ocultos
                 if 'registros_ocultos' in st.session_state and st.session_state.registros_ocultos:
@@ -2274,6 +2363,11 @@ with col_principal:
                     filtros_info.append(f"**Tipo:** {tipo_filtro}")
                 if colaborador_filtro != "Todos":
                     filtros_info.append(f"**Colaborador:** {colaborador_filtro}")
+                if periodo_filtro != "Todos":
+                    if periodo_filtro == "Personalizado" and data_inicio and data_fim:
+                        filtros_info.append(f"**Período:** {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
+                    else:
+                        filtros_info.append(f"**Período:** {periodo_filtro}")
                 
                 if filtros_info:
                     st.info(f"🔍 Filtros ativos: {' | '.join(filtros_info)}")
@@ -2421,6 +2515,11 @@ with col_principal:
                             filtros_ativos.append(f"Tipo: {tipo_filtro}")
                         if colaborador_filtro != "Todos":
                             filtros_ativos.append(f"Colaborador: {colaborador_filtro}")
+                        if periodo_filtro != "Todos":
+                            if periodo_filtro == "Personalizado" and data_inicio and data_fim:
+                                filtros_ativos.append(f"Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
+                            else:
+                                filtros_ativos.append(f"Período: {periodo_filtro}")
                         
                         # Gerar HTML com os logs FILTRADOS
                         html_content = gerar_html_relatorio(logs_filtrados)
@@ -2857,18 +2956,15 @@ with col_disponibilidade:
                         unsafe_allow_html=True
                     )
                 
-                # Mostrar horário de saída E retorno para SAÍDA RÁPIDA (15 min)
+                # Mostrar APENAS horário de saída para SAÍDA RÁPIDA (sem retorno)
                 if title == 'Saída rápida' and nome in st.session_state.get('saida_rapida_times', {}):
                     saida_time = st.session_state.saida_rapida_times[nome]
                     if isinstance(saida_time, str):
                         saida_time = datetime.fromisoformat(saida_time)
                     
-                    # Calcular hora de retorno (15 minutos depois)
-                    retorno_time = saida_time + timedelta(minutes=15)
-                    
-                    # Exibir na mesma linha usando markdown
+                    # Exibir APENAS hora de saída (SEM retorno)
                     col_nome.markdown(
-                        f"<small>🕐 Saiu: {saida_time.strftime('%H:%M')} | ⏰ Retorna: {retorno_time.strftime('%H:%M')}</small>",
+                        f"<small>🕐 Saiu: {saida_time.strftime('%H:%M')}</small>",
                         unsafe_allow_html=True
                     )
                 
