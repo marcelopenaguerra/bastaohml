@@ -1017,34 +1017,6 @@ def check_almoco_timeout():
             st.info(f"⏰ {nome} retornou automaticamente do almoço após 1 hora.")
             st.rerun()
 
-def check_saida_rapida_timeout():
-    """Verifica se alguém está há mais de 15 min em saída rápida e retorna automaticamente"""
-    now = now_brasilia()
-    saida_rapida_times = st.session_state.get('saida_rapida_times', {})
-    
-    for nome in list(saida_rapida_times.keys()):
-        saida_time = saida_rapida_times[nome]
-        if isinstance(saida_time, str):
-            saida_time = datetime.fromisoformat(saida_time)
-        
-        elapsed_minutes = (now - saida_time).total_seconds() / 60
-        
-        if elapsed_minutes >= 15.0:  # 15 minutos
-            # Remover de saída rápida
-            if st.session_state.status_texto.get(nome) == 'Saída rápida':
-                st.session_state.status_texto[nome] = ''
-            
-            # Voltar para fila
-            if nome not in st.session_state.bastao_queue:
-                st.session_state.bastao_queue.append(nome)
-                st.session_state[f'check_{nome}'] = True
-            
-            # Limpar registro
-            del st.session_state.saida_rapida_times[nome]
-            save_state()
-            
-            st.info(f"⏰ {nome} retornou automaticamente da saída rápida após 15 minutos.")
-            st.rerun()
 
 
 
