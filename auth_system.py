@@ -164,10 +164,14 @@ def init_database():
         
         for username, nome, senha, is_admin in usuarios_iniciais:
             senha_hash = hash_password(senha)
-            c.execute(
-                "INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, 1)",
-                (username, nome, senha_hash, is_admin)
-            )
+            try:
+                c.execute(
+                    "INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, 1)",
+                    (username, nome, senha_hash, is_admin)
+                )
+            except sqlite3.IntegrityError:
+                # Usuário já existe - pular (pode acontecer em migrações)
+                print(f"⚠️ Usuário {username} já existe - pulando...")
     
     conn.commit()
     conn.close()
