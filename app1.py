@@ -3128,7 +3128,6 @@ with col_disponibilidade:
                     is_admin = st.session_state.get('is_admin', False)
                     
                     if nome == usuario_logado or is_admin:
-                        # Criar key único para o selectbox
                         if st.button("✅", key=f"fim_{nome}_{title}", help="Finalizar demanda"):
                             # Extrair todas as demandas do colaborador
                             status_atual = st.session_state.status_texto.get(nome, '')
@@ -3147,83 +3146,80 @@ with col_disponibilidade:
                             if len(chamados_lista) <= 1:
                                 finalizar_demanda(nome)
                             else:
-                                # Tem múltiplas - abrir modal para escolher
+                                # Tem múltiplas - salvar lista e abrir modal
                                 st.session_state[f'finalizar_modal_{nome}'] = True
+                                st.session_state[f'demandas_lista_{nome}'] = chamados_lista
                                 st.rerun()
-                        
-                        # Modal de escolha de demanda
-                        if st.session_state.get(f'finalizar_modal_{nome}', False):
-                            with st.expander("🎯 Escolha qual demanda finalizar", expanded=True):
-                                # Extrair demandas novamente
-                                status_atual = st.session_state.status_texto.get(nome, '')
-                                chamados_lista = []
-                                
-                                if 'Atividade:' in status_atual:
-                                    atividades_raw = status_atual.split('Atividade:', 1)[1].strip()
-                                    partes = re.split(r'\||;|\n', atividades_raw)
-                                    
-                                    for parte in partes:
-                                        parte_limpa = limpar_texto_demanda(parte.strip())
-                                        if parte_limpa and len(parte_limpa) > 3:
-                                            chamados_lista.append(parte_limpa)
-                                
-                                # Mostrar opções
-                                opcoes = ["Todas as demandas"] + [f"{i+1}. {c}" for i, c in enumerate(chamados_lista)]
-                                escolha = st.selectbox("Selecione:", opcoes, key=f"sel_{nome}")
-                                
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.button("Confirmar", key=f"conf_{nome}", type="primary"):
-                                        if escolha == "Todas as demandas":
-                                            # Finalizar todas
-                                            finalizar_demanda(nome)
-                                        else:
-                                            # Finalizar apenas a selecionada
-                                            idx = int(escolha.split(".")[0]) - 1
-                                            demanda_finalizada = chamados_lista[idx]
-                                            
-                                            # Remover a demanda finalizada do status
-                                            chamados_lista.pop(idx)
-                                            
-                                            if len(chamados_lista) == 0:
-                                                # Era a última - limpar tudo
-                                                finalizar_demanda(nome)
-                                            else:
-                                                # Ainda tem outras - reconstruir status
-                                                novo_status = "Atividade: " + " | ".join(chamados_lista)
-                                                st.session_state.status_texto[nome] = novo_status
-                                                
-                                                # Log da demanda finalizada
-                                                if nome in st.session_state.demanda_start_times:
-                                                    start_time = st.session_state.demanda_start_times[nome]
-                                                    end_time = now_brasilia()
-                                                    duration = end_time - start_time
-                                                    
-                                                    log_entry = {
-                                                        'tipo': 'demanda',
-                                                        'colaborador': nome,
-                                                        'atividade': f"Atividade: {demanda_finalizada}",
-                                                        'inicio': start_time.isoformat(),
-                                                        'fim': end_time.isoformat(),
-                                                        'duracao_minutos': duration.total_seconds() / 60,
-                                                        'timestamp': now_brasilia()
-                                                    }
-                                                    st.session_state.demanda_logs.append(log_entry)
-                                                    st.session_state.daily_logs.append(log_entry)
-                                                
-                                                save_state()
-                                                st.success(f"✅ Demanda '{demanda_finalizada[:30]}...' finalizada!")
-                                                st.session_state[f'finalizar_modal_{nome}'] = False
-                                                time.sleep(1)
-                                                st.rerun()
-                                        
-                                        st.session_state[f'finalizar_modal_{nome}'] = False
-                                with col2:
-                                    if st.button("Cancelar", key=f"canc_{nome}"):
-                                        st.session_state[f'finalizar_modal_{nome}'] = False
-                                        st.rerun()
                     else:
                         st.markdown("")  # Não mostra botão para outros
+                
+                # Modal de escolha (FORA do col_btn para não quebrar layout)
+                if st.session_state.get(f'finalizar_modal_{nome}', False):
+                    st.markdown("---")
+                    st.markdown("**🎯 Escolha qual demanda finalizar:**")
+                    
+                    chamados_lista = st.session_state.get(f'demandas_lista_{nome}', [])
+                    opcoes = ["✅ Todas as demandas"] + [f"{i+1}. {c[:40]}..." if len(c) > 40 else f"{i+1}. {c}" for i, c in enumerate(chamados_lista)]
+                    
+                    escolha = st.radio("", opcoes, key=f"radio_{nome}", label_visibility="collapsed")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Confirmar", key=f"conf_{nome}", type="primary", use_container_width=True):
+                            if escolha == "✅ Todas as demandas":
+                                # Finalizar todas
+                                finalizar_demanda(nome)
+                            else:
+                                # Finalizar apenas a selecionada
+                                idx = int(escolha.split(".")[0]) - 1
+                                demanda_finalizada = chamados_lista[idx]
+                                
+                                # Remover a demanda finalizada do status
+                                chamados_lista.pop(idx)
+                                
+                                if len(chamados_lista) == 0:
+                                    # Era a última - limpar tudo
+                                    finalizar_demanda(nome)
+                                else:
+                                    # Ainda tem outras - reconstruir status
+                                    novo_status = "Atividade: " + " | ".join(chamados_lista)
+                                    st.session_state.status_texto[nome] = novo_status
+                                    
+                                    # Log da demanda finalizada
+                                    if nome in st.session_state.demanda_start_times:
+                                        start_time = st.session_state.demanda_start_times[nome]
+                                        end_time = now_brasilia()
+                                        duration = end_time - start_time
+                                        
+                                        log_entry = {
+                                            'tipo': 'demanda',
+                                            'colaborador': nome,
+                                            'atividade': f"Atividade: {demanda_finalizada}",
+                                            'inicio': start_time.isoformat(),
+                                            'fim': end_time.isoformat(),
+                                            'duracao_minutos': duration.total_seconds() / 60,
+                                            'timestamp': now_brasilia()
+                                        }
+                                        st.session_state.demanda_logs.append(log_entry)
+                                        st.session_state.daily_logs.append(log_entry)
+                                    
+                                    save_state()
+                                    st.success(f"✅ Demanda finalizada!")
+                                    st.session_state[f'finalizar_modal_{nome}'] = False
+                                    del st.session_state[f'demandas_lista_{nome}']
+                                    time.sleep(0.5)
+                                    st.rerun()
+                            
+                            st.session_state[f'finalizar_modal_{nome}'] = False
+                            if f'demandas_lista_{nome}' in st.session_state:
+                                del st.session_state[f'demandas_lista_{nome}']
+                    with col2:
+                        if st.button("❌ Cancelar", key=f"canc_{nome}", use_container_width=True):
+                            st.session_state[f'finalizar_modal_{nome}'] = False
+                            if f'demandas_lista_{nome}' in st.session_state:
+                                del st.session_state[f'demandas_lista_{nome}']
+                            st.rerun()
+                    st.markdown("---")
         st.markdown('---')
     
     def render_section_simples(title, icon, names, tag_color):
