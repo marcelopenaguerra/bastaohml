@@ -2093,7 +2093,7 @@ with col_principal:
             
             with col_p2:
                 setor = st.selectbox("Setor:",
-                                    options=["Presidência","Desembargador(a)","Gabinete", "Plenário", "Geral", "Cartório","Setores Administrativos"],
+                                    options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
                                     key="toolbar_setor")
             
             # Direcionar para colaborador específico
@@ -2841,11 +2841,16 @@ with col_disponibilidade:
                 
                 ui_lists['atividade_especifica'].append((nome, desc_limpa))
     
-    # Renderizar fila
+    # Renderizar fila - SEMPRE MOSTRAR, mesmo vazia
     st.subheader(f'✅ Na Fila ({len(ui_lists["fila"])})')
     render_order = [c for c in queue if c in ui_lists["fila"]]
     if not render_order:
-        st.caption('Ninguém na fila.')
+        # Mostrar mensagem mesmo sem ninguém
+        st.markdown("""
+        <div style='background: #f8f9fa; padding: 0.75rem; border-radius: 8px; text-align: center;'>
+            <span style='color: #6c757d; font-size: 0.9rem;'>📭 Ninguém na fila no momento</span>
+        </div>
+        """, unsafe_allow_html=True)
     else:
         for nome in render_order:
             col_nome, col_check = st.columns([0.85, 0.15], vertical_alignment="center")
@@ -2886,45 +2891,89 @@ with col_disponibilidade:
     # Função auxiliar para renderizar seções
     def render_section_detalhada(title, icon, lista_tuplas, tag_color, keyword_removal):
         st.subheader(f'{icon} {title} ({len(lista_tuplas)})')
+        # CORREÇÃO: SEMPRE mostrar seção, mesmo vazia
         if not lista_tuplas:
-            st.caption(f'Ninguém em {title.lower()}.')
+            st.caption(f'_Nenhum colaborador em {title.lower()} no momento._')
         else:
             for nome, desc in sorted(lista_tuplas, key=lambda x: x[0]):
-                col_nome, col_btn = st.columns([0.7, 0.3], vertical_alignment="center")
+                # Container principal para cada colaborador
+                col_nome, col_btn = st.columns([0.7, 0.3], vertical_alignment="top")
                 
-                col_nome.markdown(f'**{nome}**', unsafe_allow_html=True)
-                col_nome.caption(desc)
+                with col_nome:
+                    st.markdown(f'**{nome}**', unsafe_allow_html=True)
+                    
+                    # BUSCAR TODOS OS CHAMADOS DO COLABORADOR
+                    status_atual = st.session_state.status_texto.get(nome, '')
+                    
+                    # Extrair todos os chamados (podem ter múltiplos separados por | ou múltiplas atividades)
+                    chamados_lista = []
+                    
+                    # Tentar extrair chamados do status
+                    if 'Atividade:' in status_atual:
+                        # Pegar tudo depois de "Atividade:"
+                        atividades_raw = status_atual.split('Atividade:', 1)[1].strip()
+                        
+                        # Separar por | ou por nova linha se houver
+                        partes = re.split(r'\||;|\n', atividades_raw)
+                        
+                        for parte in partes:
+                            parte_limpa = limpar_texto_demanda(parte.strip())
+                            if parte_limpa and len(parte_limpa) > 3:  # Evitar strings vazias
+                                chamados_lista.append(parte_limpa)
+                    
+                    # Se não encontrou chamados, usar a descrição original
+                    if not chamados_lista:
+                        chamados_lista = [desc]
+                    
+                    # CORREÇÃO: MOSTRAR TODOS OS CHAMADOS (não limitar a 5)
+                    chamados_exibir = chamados_lista  # ← Removido [:5]
+                    total_chamados = len(chamados_lista)
+                    
+                    # Exibir cada chamado em uma linha
+                    for idx, chamado in enumerate(chamados_exibir, 1):
+                        # Adicionar número se múltiplos chamados
+                        if len(chamados_exibir) > 1:
+                            st.caption(f"**{idx}.** {chamado}")
+                        else:
+                            st.caption(chamado)
+                    
+                    # REMOVIDO: Indicador "e mais X chamados" (não é mais necessário)
                 
                 # PROBLEMA 4: Mostrar horário de início E tempo decorrido
-                if nome in st.session_state.get('demanda_start_times', {}):
-                    start_time = st.session_state.demanda_start_times[nome]
-                    if isinstance(start_time, str):
-                        start_time = datetime.fromisoformat(start_time)
-                    
-                    # Horário de início
-                    horario_inicio = start_time.strftime('%H:%M')
-                    
-                    # Tempo decorrido
-                    elapsed = now_brasilia() - start_time
-                    elapsed_mins = int(elapsed.total_seconds() / 60)
-                    
-                    col_nome.caption(f"🕐 Início: {horario_inicio} | ⏱️ {elapsed_mins} min")
+                with col_nome:
+                    if nome in st.session_state.get('demanda_start_times', {}):
+                        start_time = st.session_state.demanda_start_times[nome]
+                        if isinstance(start_time, str):
+                            start_time = datetime.fromisoformat(start_time)
+                        
+                        # Horário de início
+                        horario_inicio = start_time.strftime('%H:%M')
+                        
+                        # Tempo decorrido
+                        elapsed = now_brasilia() - start_time
+                        elapsed_mins = int(elapsed.total_seconds() / 60)
+                        
+                        st.caption(f"🕐 Início: {horario_inicio} | ⏱️ {elapsed_mins} min")
                 
                 # Botão Finalizar (ITEM 1) - apenas próprio colaborador ou admin
-                usuario_logado = st.session_state.usuario_logado
-                is_admin = st.session_state.get('is_admin', False)
-                
-                if nome == usuario_logado or is_admin:
-                    if col_btn.button("✅", key=f"fim_{nome}_{title}", help="Finalizar"):
-                        finalizar_demanda(nome)
-                else:
-                    col_btn.markdown("")  # Não mostra botão para outros
+                with col_btn:
+                    usuario_logado = st.session_state.usuario_logado
+                    is_admin = st.session_state.get('is_admin', False)
+                    
+                    if nome == usuario_logado or is_admin:
+                        if st.button("✅", key=f"fim_{nome}_{title}", help="Finalizar"):
+                            finalizar_demanda(nome)
+                    else:
+                        st.markdown("")  # Não mostra botão para outros
         st.markdown('---')
     
     def render_section_simples(title, icon, names, tag_color):
         st.subheader(f'{icon} {title} ({len(names)})')
+        # CORREÇÃO: SEMPRE mostrar seção, mesmo vazia
+        # REMOVIDO: if not names -> Sempre mostra a lista, mesmo que vazia
         if not names:
-            st.caption(f'Ninguém em {title.lower()}.')
+            # Mensagem discreta quando vazio (não "Ninguém...")
+            st.caption(f'_Nenhum colaborador em {title.lower()} no momento._')
         else:
             for nome in sorted(names):
                 # CRÍTICO: Verificar se é admin ANTES de mostrar checkbox
