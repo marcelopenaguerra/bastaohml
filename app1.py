@@ -2016,6 +2016,139 @@ with col_principal:
         else:
             st.toast("ℹ️ Nenhuma demanda cadastrada no momento", icon="ℹ️")
     
+    # ========== DEMANDAS PÚBLICAS NA TELA PRINCIPAL ==========
+    # DUPLICAR o código que funciona em "Atividades" para aparecer SEMPRE
+    usuario_logado = st.session_state.usuario_logado
+    demandas_ativas_main = [
+        d for d in st.session_state.get('demandas_publicas', []) 
+        if d.get('ativa', True) and (
+            d.get('direcionada_para') is None or 
+            d.get('direcionada_para') == usuario_logado
+        )
+    ]
+    
+    if demandas_ativas_main:
+        # ORDENAR por prioridade
+        prioridade_ordem = {'Urgente': 0, 'Alta': 1, 'Média': 2, 'Baixa': 3}
+        demandas_ativas_main = sorted(
+            demandas_ativas_main, 
+            key=lambda d: prioridade_ordem.get(d.get('prioridade', 'Média'), 2)
+        )
+        
+        total_demandas = len(demandas_ativas_main)
+        st.markdown(f"""
+        <div class="demand-alert">
+            <strong>{total_demandas} DEMANDA(S) DISPONÍVEL(EIS) PARA ADESÃO</strong>
+            {'<br><small style="opacity: 0.8;">Mostrando as 3 mais urgentes</small>' if total_demandas > 3 else ''}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # CSS
+        st.markdown("""
+        <style>
+        .demanda-card {
+            background: white;
+            border-left: 4px solid;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .demanda-card:hover {
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            transform: translateX(2px);
+        }
+        .demanda-urgente { border-left-color: #dc2626; }
+        .demanda-alta { border-left-color: #ea580c; }
+        .demanda-media { border-left-color: #f59e0b; }
+        .demanda-baixa { border-left-color: #10b981; }
+        .demanda-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.25rem;
+        }
+        .demanda-badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: white;
+        }
+        .badge-urgente { background: #dc2626; }
+        .badge-alta { background: #ea580c; }
+        .badge-media { background: #f59e0b; }
+        .badge-baixa { background: #10b981; }
+        .demanda-setor {
+            color: #64748b;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .demanda-texto {
+            color: #1e293b;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            margin: 0.25rem 0;
+        }
+        .demanda-direcionada {
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            margin-top: 0.25rem;
+            display: inline-block;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Mostrar APENAS as 3 primeiras demandas
+        for dem in demandas_ativas_main[:3]:
+            setor = dem.get('setor', 'Geral')
+            prioridade = dem.get('prioridade', 'Média')
+            texto_limpo = limpar_texto_demanda(dem['texto'])
+            prioridade_lower = prioridade.lower()
+            card_class = f"demanda-{prioridade_lower}"
+            badge_class = f"badge-{prioridade_lower}"
+            
+            card_html = f"""
+            <div class="demanda-card {card_class}">
+                <div class="demanda-header">
+                    <span class="demanda-badge {badge_class}">{prioridade.upper()}</span>
+                    <span class="demanda-setor">{setor}</span>
+                </div>
+                <div class="demanda-texto">{texto_limpo[:80]}{'...' if len(texto_limpo) > 80 else ''}</div>
+                {'<div class="demanda-direcionada">📌 Direcionada para você</div>' if dem.get('direcionada_para') else ''}
+            </div>
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
+            
+            col_btn = st.columns([1])[0]
+            if col_btn.button(f"✅ Assumir", key=f"aderir_dem_main_{dem['id']}", use_container_width=True):
+                colaborador_logado = st.session_state.usuario_logado
+                atividade_desc = f"[{setor}] {texto_limpo[:100]}"
+                st.session_state.demanda_start_times[colaborador_logado] = now_brasilia()
+                status_atual = st.session_state.status_texto.get(colaborador_logado, '')
+                if status_atual and 'Atividade:' in status_atual:
+                    st.session_state.status_texto[colaborador_logado] = f"{status_atual} | {atividade_desc}"
+                else:
+                    st.session_state.status_texto[colaborador_logado] = f"Atividade: {atividade_desc}"
+                if colaborador_logado in st.session_state.bastao_queue:
+                    st.session_state.bastao_queue.remove(colaborador_logado)
+                st.session_state[f'check_{colaborador_logado}'] = False
+                check_and_assume_baton()
+                dem['ativa'] = False
+                dem['assumida_por'] = colaborador_logado
+                dem['assumida_em'] = now_brasilia().isoformat()
+                save_admin_data()
+                save_state()
+                st.success(f"{colaborador_logado} assumiu a demanda!")
+                time.sleep(1)
+                st.rerun()
+    
     # Menu de Atividades
     if st.session_state.active_view == 'menu_atividades':
         with st.container(border=True):
