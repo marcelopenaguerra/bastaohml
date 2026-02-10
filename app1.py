@@ -2923,11 +2923,22 @@ with col_disponibilidade:
     
     # Função auxiliar para renderizar seções
     def render_section_detalhada(title, icon, lista_tuplas, tag_color, keyword_removal):
-        st.subheader(f'{icon} {title} ({len(lista_tuplas)})')
-        # CORREÇÃO: SEMPRE mostrar seção, mesmo vazia
-        if not lista_tuplas:
-            st.caption(f'_Nenhum colaborador em {title.lower()} no momento._')
-        else:
+        # CORREÇÃO ESPECIAL: Para "Em Demanda", contar também demandas disponíveis
+        total_count = len(lista_tuplas)
+        demandas_disponiveis = []
+        
+        if title == 'Em Demanda':
+            # Buscar demandas públicas que ninguém pegou ainda
+            demandas_disponiveis = [
+                d for d in st.session_state.get('demandas_publicas', [])
+                if d.get('ativa', True) and d.get('direcionada_para') is None
+            ]
+            total_count = len(lista_tuplas) + len(demandas_disponiveis)
+        
+        st.subheader(f'{icon} {title} ({total_count})')
+        
+        # Mostrar colaboradores que já pegaram demandas
+        if lista_tuplas:
             for nome, desc in sorted(lista_tuplas, key=lambda x: x[0]):
                 # Container principal para cada colaborador
                 col_nome, col_btn = st.columns([0.7, 0.3], vertical_alignment="top")
@@ -2998,6 +3009,80 @@ with col_disponibilidade:
                             finalizar_demanda(nome)
                     else:
                         st.markdown("")  # Não mostra botão para outros
+        
+        # CORREÇÃO: Mostrar demandas públicas disponíveis (que ninguém pegou)
+        if title == 'Em Demanda' and demandas_disponiveis:
+            st.markdown("#### 📢 Demandas Disponíveis")
+            st.caption(f"_{len(demandas_disponiveis)} demanda(s) aguardando alguém pegar_")
+            
+            for demanda in demandas_disponiveis:
+                with st.container(border=True):
+                    col_info, col_btn = st.columns([0.7, 0.3], vertical_alignment="top")
+                    
+                    with col_info:
+                        setor = demanda.get('setor', 'Geral')
+                        prioridade = demanda.get('prioridade', 'Normal')
+                        texto = demanda.get('texto', '')
+                        
+                        # Ícone de prioridade
+                        prioridade_icon = "🔴" if prioridade == "Alta" else "🟡" if prioridade == "Média" else "🟢"
+                        
+                        st.markdown(f"**{prioridade_icon} [{setor}]** {texto[:100]}...")
+                        
+                        # Mostrar quem criou e quando
+                        criado_por = demanda.get('criado_por', 'Admin')
+                        criado_em = demanda.get('criado_em', '')
+                        if criado_em:
+                            try:
+                                dt = datetime.fromisoformat(criado_em)
+                                tempo_str = dt.strftime('%d/%m %H:%M')
+                                st.caption(f"📝 Por: {criado_por} | 🕐 {tempo_str}")
+                            except:
+                                pass
+                    
+                    with col_btn:
+                        # Botão para pegar demanda
+                        usuario_atual = st.session_state.usuario_logado
+                        demanda_id = demanda.get('id')
+                        
+                        if st.button("👋 Pegar", key=f"pegar_demanda_{demanda_id}", help="Pegar esta demanda"):
+                            # Marcar demanda como inativa (foi assumida)
+                            for d in st.session_state.demandas_publicas:
+                                if d.get('id') == demanda_id:
+                                    d['ativa'] = False
+                                    break
+                            
+                            # Adicionar demanda ao status do usuário
+                            atividade_desc = f"[{setor}] {texto[:100]}"
+                            status_atual = st.session_state.status_texto.get(usuario_atual, '')
+                            
+                            if status_atual and 'Atividade:' in status_atual:
+                                # Já tem atividades - ADICIONAR
+                                st.session_state.status_texto[usuario_atual] = f"{status_atual} | {atividade_desc}"
+                            else:
+                                # Primeira atividade
+                                st.session_state.status_texto[usuario_atual] = f"Atividade: {atividade_desc}"
+                            
+                            # Registrar início
+                            st.session_state.demanda_start_times[usuario_atual] = now_brasilia()
+                            
+                            # Sair da fila se estiver
+                            if usuario_atual in st.session_state.bastao_queue:
+                                st.session_state.bastao_queue.remove(usuario_atual)
+                            st.session_state[f'check_{usuario_atual}'] = False
+                            
+                            # Passar bastão se tinha
+                            check_and_assume_baton()
+                            
+                            # Salvar e atualizar
+                            save_admin_data()
+                            st.success(f"✅ Demanda assumida!")
+                            st.rerun()
+        
+        # Mensagem se não tem nada
+        elif not lista_tuplas and title == 'Em Demanda':
+            st.caption(f'_Nenhum colaborador em {title.lower()} no momento._')
+        
         st.markdown('---')
     
     def render_section_simples(title, icon, names, tag_color):
