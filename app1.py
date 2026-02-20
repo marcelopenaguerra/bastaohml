@@ -1990,12 +1990,8 @@ with col_principal:
     
     st.markdown("")
     
-    # Status: Almoço, Saída Rápida, Ausente
-    row1_c1, row1_c2, row1_c3 = st.columns(3)
-    
-    row1_c1.button('Almoço', on_click=update_status, args=('Almoço', True,), use_container_width=True)
-    row1_c2.button('Saída Rápida', on_click=update_status, args=('Saída rápida', True,), use_container_width=True)
-    row1_c3.button('Ausente', on_click=update_status, args=('Ausente', True,), use_container_width=True)
+    # Status: Almoço
+    st.button('Almoço', on_click=update_status, args=('Almoço', True,), use_container_width=True)
     
     st.markdown("")
     
@@ -2241,7 +2237,7 @@ with col_principal:
             
             with col_p2:
                 setor = st.selectbox("Setor:",
-                                    options=["Presidência", "Desembargador(a)","Cartório","Geral", "Gabinete", "Setores Administrativos"],
+                                    options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
                                     key="toolbar_setor")
             
             # Direcionar para colaborador específico
