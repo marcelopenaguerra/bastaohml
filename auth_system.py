@@ -50,131 +50,158 @@ def hash_password(password):
 # Sessão agora é APENAS no st.session_state (não compartilha entre usuários)
 
 def init_database():
-    """Inicializa banco de dados de usuários"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # Verificar se tabela existe
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='usuarios'")
-    table_exists = c.fetchone() is not None
-    
-    if table_exists:
-        # MIGRAÇÃO: Verificar se coluna username existe
-        c.execute("PRAGMA table_info(usuarios)")
-        columns = [column[1] for column in c.fetchall()]
+    """
+    Inicializa banco de dados de usuários
+    GARANTIA: À prova de erros - NUNCA trava o sistema
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
         
-        if 'username' not in columns:
-            # MIGRAÇÃO NECESSÁRIA: Adicionar coluna username
-            print("⚠️ MIGRAÇÃO: Adicionando coluna 'username' ao banco existente...")
+        # Verificar se tabela existe
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='usuarios'")
+        table_exists = c.fetchone() is not None
+        
+        if table_exists:
+            # MIGRAÇÃO: Verificar se coluna username existe
+            c.execute("PRAGMA table_info(usuarios)")
+            columns = [column[1] for column in c.fetchall()]
             
-            try:
-                # Adicionar coluna username
-                c.execute("ALTER TABLE usuarios ADD COLUMN username TEXT")
+            if 'username' not in columns:
+                # MIGRAÇÃO NECESSÁRIA: Adicionar coluna username
+                print("⚠️ MIGRAÇÃO: Adicionando coluna 'username' ao banco existente...")
                 
-                # Atualizar usernames baseado nos nomes existentes
-                # Mapeamento de nomes para usernames
-                username_map = {
-                    "Álvaro Rungue": "rungue",
-                    "Daniely Cristina Cunha Mesquita": "field90",
-                    "Celso Daniel Vilano Cardoso": "field240",
-                    "Cinthia Mery Facion": "field284",
-                    "Igor Eduardo Martins": "field255",
-                    "Leonardo Gonçalves Fleury": "field273",
-                    "Leonardo goncalves fleury": "field273",  # Variante
-                    "Marcio Rodrigues Alves": "field17",
-                    "Pollyanna Silva Pereira": "field155",
-                    "Rôner Ribeiro Júnior": "field249",
-                    "Roner Ribeiro Júnior": "field249",  # Variante
-                    "Marcelo dos Santos Dutra": "marcelo",
-                    "Frederico Augusto Costa Gonçalves": "field108",
-                    "Judson Heleno Faleiro": "field153",
-                    "Marcelo Batista Amaral": "field186",
-                    "Otávio Reis": "field199",
-                    "Ramon Shander de Almeida": "field178",
-                    "Rodrigo Marinho Marques": "field41",
-                    "Warley Roberto de Oliveira Cruz": "field111",
-                }
-                
-                # Buscar todos os usuários existentes
-                c.execute("SELECT id, nome FROM usuarios")
-                usuarios_existentes = c.fetchall()
-                
-                # Atualizar cada usuário com seu username
-                for user_id, nome in usuarios_existentes:
-                    username = username_map.get(nome)
-                    if username:
-                        c.execute("UPDATE usuarios SET username = ? WHERE id = ?", (username, user_id))
-                    else:
-                        # Se não encontrar no mapa, gerar username genérico
-                        username_gerado = f"user{user_id}"
-                        c.execute("UPDATE usuarios SET username = ? WHERE id = ?", (username_gerado, user_id))
-                        print(f"⚠️ Username genérico criado para '{nome}': {username_gerado}")
-                
-                # Tornar username UNIQUE e NOT NULL
-                # SQLite não permite ALTER COLUMN, então criar índice UNIQUE
-                c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_username ON usuarios(username)")
-                
-                conn.commit()
-                print("✅ MIGRAÇÃO concluída com sucesso!")
-                
-            except Exception as e:
-                print(f"❌ Erro na migração: {e}")
-                conn.rollback()
-    
-    # Criar tabela se não existir
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS usuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            nome TEXT UNIQUE NOT NULL,
-            senha_hash TEXT NOT NULL,
-            is_admin INTEGER DEFAULT 0,
-            ativo INTEGER DEFAULT 1,
-            primeiro_acesso INTEGER DEFAULT 1,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Verificar se já tem usuários
-    c.execute("SELECT COUNT(*) FROM usuarios")
-    count = c.fetchone()[0]
-    
-    if count == 0:
-        # Criar usuários com username (ID) conforme lista fornecida
-        usuarios_iniciais = [
-            # (username, nome, senha, is_admin)
-            ("rungue", "Álvaro Rungue", "admin123", 1),
-            ("field90", "Daniely Cristina Cunha Mesquita", "admin123", 1),
-            ("field240", "Celso Daniel Vilano Cardoso", "admin123", 1),
-            ("field284", "Cinthia Mery Facion", "admin123", 1),
-            ("field255", "Igor Eduardo Martins", "admin123", 1),
-            ("field273", "Leonardo Gonçalves Fleury", "admin123", 1),
-            ("field17", "Marcio Rodrigues Alves", "admin123", 1),
-            ("field155", "Pollyanna Silva Pereira", "admin123", 1),
-            ("field249", "Rôner Ribeiro Júnior", "admin123", 1),
-            ("marcelo", "Marcelo dos Santos Dutra", "admin123", 1),
-            ("field108", "Frederico Augusto Costa Gonçalves", "user123", 0),
-            ("field153", "Judson Heleno Faleiro", "user123", 0),
-            ("field186", "Marcelo Batista Amaral", "user123", 0),
-            ("field199", "Otávio Reis", "user123", 0),
-            ("field178", "Ramon Shander de Almeida", "user123", 0),
-            ("field41", "Rodrigo Marinho Marques", "user123", 0),
-            ("field111", "Warley Roberto de Oliveira Cruz", "user123", 0),
-        ]
+                try:
+                    # Adicionar coluna username
+                    c.execute("ALTER TABLE usuarios ADD COLUMN username TEXT")
+                    
+                    # Atualizar usernames baseado nos nomes existentes
+                    # Mapeamento de nomes para usernames
+                    username_map = {
+                        "Álvaro Rungue": "rungue",
+                        "Daniely Cristina Cunha Mesquita": "field90",
+                        "Celso Daniel Vilano Cardoso": "field240",
+                        "Cinthia Mery Facion": "field284",
+                        "Igor Eduardo Martins": "field255",
+                        "Leonardo Gonçalves Fleury": "field273",
+                        "Leonardo goncalves fleury": "field273",  # Variante
+                        "Marcio Rodrigues Alves": "field17",
+                        "Pollyanna Silva Pereira": "field155",
+                        "Rôner Ribeiro Júnior": "field249",
+                        "Roner Ribeiro Júnior": "field249",  # Variante
+                        "Marcelo dos Santos Dutra": "marcelo",
+                        "Frederico Augusto Costa Gonçalves": "field108",
+                        "Judson Heleno Faleiro": "field153",
+                        "Marcelo Batista Amaral": "field186",
+                        "Otávio Reis": "field199",
+                        "Ramon Shander de Almeida": "field178",
+                        "Rodrigo Marinho Marques": "field41",
+                        "Warley Roberto de Oliveira Cruz": "field111",
+                    }
+                    
+                    # Buscar todos os usuários existentes
+                    c.execute("SELECT id, nome FROM usuarios")
+                    usuarios_existentes = c.fetchall()
+                    
+                    # Atualizar cada usuário com seu username
+                    for user_id, nome in usuarios_existentes:
+                        username = username_map.get(nome)
+                        if username:
+                            c.execute("UPDATE usuarios SET username = ? WHERE id = ?", (username, user_id))
+                        else:
+                            # Se não encontrar no mapa, gerar username genérico
+                            username_gerado = f"user{user_id}"
+                            c.execute("UPDATE usuarios SET username = ? WHERE id = ?", (username_gerado, user_id))
+                            print(f"⚠️ Username genérico criado para '{nome}': {username_gerado}")
+                    
+                    # Tornar username UNIQUE e NOT NULL
+                    # SQLite não permite ALTER COLUMN, então criar índice UNIQUE
+                    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_username ON usuarios(username)")
+                    
+                    conn.commit()
+                    print("✅ MIGRAÇÃO concluída com sucesso!")
+                    
+                except Exception as e:
+                    print(f"❌ Erro na migração: {e}")
+                    conn.rollback()
         
-        for username, nome, senha, is_admin in usuarios_iniciais:
-            senha_hash = hash_password(senha)
+        # Criar tabela se não existir
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE,
+                nome TEXT UNIQUE NOT NULL,
+                senha_hash TEXT NOT NULL,
+                is_admin INTEGER DEFAULT 0,
+                ativo INTEGER DEFAULT 1,
+                primeiro_acesso INTEGER DEFAULT 1,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Verificar se já tem usuários
+        c.execute("SELECT COUNT(*) FROM usuarios")
+        count = c.fetchone()[0]
+        
+        if count == 0:
+            # CORREÇÃO: Usar Streamlit Secrets para controlar troca de senha
+            # Se secrets.toml tiver force_password_change = false, não força troca
             try:
-                c.execute(
-                    "INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, 1)",
-                    (username, nome, senha_hash, is_admin)
-                )
-            except sqlite3.IntegrityError:
-                # Usuário já existe - pular (pode acontecer em migrações)
-                print(f"⚠️ Usuário {username} já existe - pulando...")
-    
-    conn.commit()
-    conn.close()
+                import streamlit as st
+                # Tentar acessar secrets de forma segura
+                if hasattr(st, 'secrets') and 'database' in st.secrets:
+                    force_change = st.secrets["database"].get("force_password_change", True)
+                else:
+                    force_change = True
+                primeiro_acesso_valor = 1 if force_change else 0
+                print(f"ℹ️ Troca de senha obrigatória: {'SIM' if primeiro_acesso_valor == 1 else 'NÃO'}")
+            except Exception as e:
+                # Se não conseguir acessar secrets, forçar troca
+                primeiro_acesso_valor = 1
+                print(f"ℹ️ Secrets não disponível ({e}) - forçando troca de senha")
+            
+            # Criar usuários com username (ID) conforme lista fornecida
+            usuarios_iniciais = [
+                # (username, nome, senha, is_admin)
+                ("rungue", "Álvaro Rungue", "admin123", 1),
+                ("field90", "Daniely Cristina Cunha Mesquita", "admin123", 1),
+                ("field240", "Celso Daniel Vilano Cardoso", "admin123", 1),
+                ("field284", "Cinthia Mery Facion", "admin123", 1),
+                ("field255", "Igor Eduardo Martins", "admin123", 1),
+                ("field273", "Leonardo Gonçalves Fleury", "admin123", 1),
+                ("field17", "Marcio Rodrigues Alves", "admin123", 1),
+                ("field155", "Pollyanna Silva Pereira", "admin123", 1),
+                ("field249", "Rôner Ribeiro Júnior", "admin123", 1),
+                ("marcelo", "Marcelo dos Santos Dutra", "admin123", 1),
+                ("field108", "Frederico Augusto Costa Gonçalves", "user123", 0),
+                ("field153", "Judson Heleno Faleiro", "user123", 0),
+                ("field186", "Marcelo Batista Amaral", "user123", 0),
+                ("field199", "Otávio Reis", "user123", 0),
+                ("field178", "Ramon Shander de Almeida", "user123", 0),
+                ("field41", "Rodrigo Marinho Marques", "user123", 0),
+                ("field111", "Warley Roberto de Oliveira Cruz", "user123", 0),
+            ]
+            
+            for username, nome, senha, is_admin in usuarios_iniciais:
+                senha_hash = hash_password(senha)
+                try:
+                    c.execute(
+                        "INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, ?)",
+                        (username, nome, senha_hash, is_admin, primeiro_acesso_valor)
+                    )
+                except sqlite3.IntegrityError:
+                    # Usuário já existe - pular (pode acontecer em migrações)
+                    print(f"⚠️ Usuário {username} já existe - pulando...")
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        # PROTEÇÃO MÁXIMA: Qualquer erro aqui não trava o sistema
+        print(f"⚠️ AVISO: Erro ao inicializar banco: {e}")
+        print("   O sistema continuará funcionando, mas pode ser necessário resetar o banco.")
+        print("   Execute: python resetar_banco.py")
+        # NÃO fazer raise - deixar sistema continuar
 
 def verificar_login(nome, senha):
     """
