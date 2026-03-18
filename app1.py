@@ -2282,7 +2282,7 @@ with col_principal:
 # REMOVIDO - DUPLICADO NO ADMIN PANEL:             
 # REMOVIDO - DUPLICADO NO ADMIN PANEL:             with col_p2:
 # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 setor = st.selectbox("Setor:",
-# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                     options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                     options=["Presidência", "Desembargador(a)","Plenário","Geral", "Cartório", "Gabinete", "Setores Administrativos"],
 # REMOVIDO - DUPLICADO NO ADMIN PANEL:                                     key="toolbar_setor")
 # REMOVIDO - DUPLICADO NO ADMIN PANEL:             
 # REMOVIDO - DUPLICADO NO ADMIN PANEL:             # Direcionar para colaborador específico
