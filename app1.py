@@ -34,7 +34,7 @@ from shared_state import SharedState
 
 # Timezone de Brasília
 
-BRASILIA_TZ = pytz.timezone(‘America/Sao_Paulo’)
+BRASILIA_TZ = pytz.timezone('America/Sao_Paulo')
 
 def now_brasilia():
 “”“Retorna datetime atual no horário de Brasília”””
