@@ -2281,7 +2281,154 @@ with col_principal:
     
     # Views das ferramentas
     
-
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:     # View de Gerenciar Demandas (ADMIN)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:     if st.session_state.active_view == "gerenciar_demandas" and st.session_state.is_admin:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:         with st.container(border=True):
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("### Gerenciar Demandas")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("#### Publicar Nova Demanda")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             nova_demanda_texto = st.text_area("Descrição da demanda:", height=100, key="toolbar_nova_demanda")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             col_p1, col_p2 = st.columns(2)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             with col_p1:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 prioridade = st.radio("Prioridade:", 
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      options=["Baixa", "Média", "Alta", "Urgente"],
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      index=1,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      horizontal=False,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      key="toolbar_prioridade")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             with col_p2:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 setor = st.selectbox("Setor:",
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                     options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                     key="toolbar_setor")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             # Direcionar para colaborador específico
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             direcionar = st.checkbox("Direcionar para colaborador específico?", key="toolbar_direcionar")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             colaborador_direcionado = None
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             if direcionar:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 # Mostrar TODOS os colaboradores (exceto admins)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 from auth_system import is_usuario_admin
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 colaboradores_disponiveis = [c for c in COLABORADORES 
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                             if not is_usuario_admin(c)]
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 if colaboradores_disponiveis:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     colaborador_direcionado = st.selectbox(
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         "Selecione o colaborador:",
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         options=sorted(colaboradores_disponiveis),
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         key="toolbar_colab_direcionado"
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     )
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     # Mostrar status do colaborador selecionado
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     status_colab = st.session_state.status_texto.get(colaborador_direcionado, 'Sem status')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     if colaborador_direcionado in st.session_state.bastao_queue:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.info(f"✅ {colaborador_direcionado} está na fila")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     elif status_colab == 'Ausente':
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.warning(f"⚠️ {colaborador_direcionado} está Ausente (receberá demanda mesmo assim)")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.info(f"ℹ️ {colaborador_direcionado} - Status: {status_colab}")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.error("❌ Nenhum colaborador cadastrado no sistema.")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     direcionar = False
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             if st.button("Publicar Demanda", key="toolbar_pub_demanda", type="primary"):
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 if nova_demanda_texto:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     if 'demandas_publicas' not in st.session_state:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.session_state.demandas_publicas = []
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     # LIMPEZA GLOBAL
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     texto_limpo = limpar_texto_demanda(nova_demanda_texto)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     demanda_obj = {
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'id': len(st.session_state.demandas_publicas) + 1,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'texto': texto_limpo,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'prioridade': prioridade,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'setor': setor,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'criado_em': now_brasilia().isoformat(),
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'criado_por': st.session_state.usuario_logado,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'ativa': True,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'direcionada_para': colaborador_direcionado if direcionar else None
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     }
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.session_state.demandas_publicas.append(demanda_obj)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     save_admin_data()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     # Se direcionada, atribuir automaticamente
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     if colaborador_direcionado:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # CRÍTICO: Verificar bastão ANTES de mudar status
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Agora mudar o status
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         atividade_desc = f"[{setor}] {texto_limpo[:100]}"
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # CORREÇÃO: ADICIONAR atividade ao invés de sobrescrever
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         status_atual = st.session_state.status_texto.get(colaborador_direcionado, '')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if status_atual and 'Atividade:' in status_atual:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             # Já tem atividades - ADICIONAR mais uma
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.session_state.status_texto[colaborador_direcionado] = f"{status_atual} | {atividade_desc}"
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             # Primeira atividade
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Remover da fila
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if estava_na_fila:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.session_state.bastao_queue.remove(colaborador_direcionado)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Desmarcar checkbox
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.session_state[f'check_{colaborador_direcionado}'] = False
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Se tinha bastão, passar para próximo (SEM validação)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if tinha_bastao:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             force_rotate_bastao(colaborador_direcionado)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             # Se não tinha bastão, só salvar
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             save_state()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Demanda pública (não direcionada)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         save_state()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.success("✅ Demanda publicada!")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     time.sleep(1)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.rerun()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.warning("Digite a descrição da demanda!")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             # ========== LISTAR DEMANDAS ATIVAS ==========
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("---")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("#### Demandas Ativas")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             if st.session_state.get('demandas_publicas', []):
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 demandas_para_mostrar = [d for d in st.session_state.demandas_publicas if d.get('ativa', True)]
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 if demandas_para_mostrar:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     for dem in demandas_para_mostrar:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         col1, col2 = st.columns([0.9, 0.1])
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         setor_tag = dem.get('setor', 'Geral')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         prioridade_tag = dem.get('prioridade', 'Média')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         direcionado = dem.get('direcionada_para')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # LIMPEZA GLOBAL
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         texto_limpo = limpar_texto_demanda(dem['texto'])
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         texto_exibicao = f"[{setor_tag}] [{prioridade_tag}] {texto_limpo[:50]}..."
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if direcionado:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             texto_exibicao = f"→ {direcionado}: " + texto_exibicao
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         col1.write(f"**{dem['id']}.** {texto_exibicao}")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if col2.button("✕", key=f"del_toolbar_dem_{dem['id']}"):
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             dem['ativa'] = False
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             save_admin_data()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.rerun()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.info("Nenhuma demanda ativa no momento.")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 st.info("Nenhuma demanda cadastrada ainda.")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:     
     # View de Erro/Novidade
     if st.session_state.active_view == "erro_novidade":
         with st.container(border=True):
