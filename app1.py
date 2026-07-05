@@ -81,6 +81,7 @@ ADMIN_COLABORADORES = [
 # Usar session_state para não reconectar ao PostgreSQL a cada rerun (auto-refresh 10s)
 if 'db_initialized' not in st.session_state:
     init_database()
+    SharedState.init_db()
     st.session_state.db_initialized = True
 
 # --- Função para obter colaboradores do banco ---
