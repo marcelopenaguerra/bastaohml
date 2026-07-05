@@ -163,6 +163,13 @@ class SharedState:
         SINCRONIZA do disco para st.session_state
         Chame isto ANTES de renderizar qualquer coisa
         """
+        # PERFORMANCE: se ESTA sessão acabou de salvar (rerun disparado por um
+        # clique seu), st.session_state já reflete exatamente o que foi salvo -
+        # reler agora seria 1 round-trip redundante ao Postgres. Só pula essa
+        # única vez; outras sessões/autorefresh continuam sincronizando normal.
+        if st.session_state.pop('_shared_state_just_saved', False):
+            return
+
         disk_data = SharedState.load_from_disk()
         
         # Atualizar session_state com dados do disco
@@ -208,6 +215,7 @@ class SharedState:
         
         # Salvar no disco
         SharedState.save_to_disk(data)
+        st.session_state['_shared_state_just_saved'] = True
     
     @staticmethod
     def load_admin_data():
