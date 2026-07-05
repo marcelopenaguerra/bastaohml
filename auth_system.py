@@ -37,13 +37,22 @@ def _usar_postgres():
         _USE_POSTGRES = False
     return _USE_POSTGRES
 
-def get_connection():
-    if _usar_postgres():
-        import psycopg2
-        pg = st.secrets["postgres"]
-        if pg.get("url"):
-            return psycopg2.connect(pg["url"], sslmode="require")
-        return psycopg2.connect(
+_PG_POOL = None
+
+def _get_pool():
+    """Cria (uma vez por processo) um pool de conexoes Postgres.
+    Conectar do zero leva ~1s (medido em producao) - reutilizar conexoes
+    ja abertas elimina esse custo na maioria dos cliques."""
+    global _PG_POOL
+    if _PG_POOL is not None:
+        return _PG_POOL
+    import psycopg2.pool
+    pg = st.secrets["postgres"]
+    if pg.get("url"):
+        _PG_POOL = psycopg2.pool.ThreadedConnectionPool(1, 10, pg["url"], sslmode="require")
+    else:
+        _PG_POOL = psycopg2.pool.ThreadedConnectionPool(
+            1, 10,
             host=pg["host"],
             port=pg.get("port", 5432),
             dbname=pg["dbname"],
@@ -51,6 +60,28 @@ def get_connection():
             password=pg["password"],
             sslmode=pg.get("sslmode", "require"),
         )
+    return _PG_POOL
+
+class _PooledConnection:
+    """Encapsula uma conexao do pool: `.close()` devolve ao pool em vez de
+    encerrar de verdade, para que todo o codigo existente (que sempre chama
+    conn.close() no final) continue funcionando sem nenhuma mudanca."""
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+    def close(self):
+        self._pool.putconn(self._conn)
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+def get_connection():
+    if _usar_postgres():
+        pool = _get_pool()
+        conn = pool.getconn()
+        if conn.closed:
+            pool.putconn(conn, close=True)
+            conn = pool.getconn()
+        return _PooledConnection(pool, conn)
     return sqlite3.connect(DB_PATH)
 
 def _q(query):
