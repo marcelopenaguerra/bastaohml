@@ -84,6 +84,7 @@ if 'db_initialized' not in st.session_state:
     st.session_state.db_initialized = True
 
 # --- Função para obter colaboradores do banco ---
+@st.cache_data(ttl=60)  # PERFORMANCE: evita reconectar ao Postgres a cada rerun (auto-refresh 10s)
 def get_colaboradores():
     """Retorna lista atualizada de colaboradores do banco de dados"""
     try:
