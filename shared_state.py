@@ -212,9 +212,11 @@ class SharedState:
             if key.startswith('check_'):
                 checks[key.replace('check_', '')] = st.session_state[key]
         data['checks'] = checks
-        
-        # Salvar no disco
-        SharedState.save_to_disk(data)
+
+        # UPDATE OTIMISTA: st.session_state já está correto em memória, então
+        # a tela pode redesenhar na hora sem esperar o Postgres. O salvamento
+        # real roda em segundo plano (thread separada, não toca session_state).
+        threading.Thread(target=SharedState.save_to_disk, args=(data,), daemon=True).start()
         st.session_state['_shared_state_just_saved'] = True
     
     @staticmethod
@@ -242,21 +244,27 @@ class SharedState:
     @staticmethod
     def save_admin_data():
         """Salva dados administrativos"""
-        with _file_lock:
-            try:
-                data = {
-                    'colaboradores_extras': st.session_state.get('colaboradores_extras', []),
-                    'demandas_publicas': st.session_state.get('demandas_publicas', [])
-                }
-                raw = json.dumps(data, default=str, ensure_ascii=False, indent=2)
-                if _usar_postgres():
-                    SharedState._pg_set('admin_data', raw)
-                else:
-                    ADMIN_FILE.write_text(raw)
-                SharedState._fetch_admin_data_cached.clear()  # invalida o cache: a próxima leitura já vem atualizada
-                return True
-            except:
-                return False
+        # Ler o session_state aqui (thread principal); a escrita em si roda
+        # em segundo plano (update otimista, igual sync_from_session_state).
+        data = {
+            'colaboradores_extras': st.session_state.get('colaboradores_extras', []),
+            'demandas_publicas': st.session_state.get('demandas_publicas', [])
+        }
+        raw = json.dumps(data, default=str, ensure_ascii=False, indent=2)
+
+        def _write():
+            with _file_lock:
+                try:
+                    if _usar_postgres():
+                        SharedState._pg_set('admin_data', raw)
+                    else:
+                        ADMIN_FILE.write_text(raw)
+                    SharedState._fetch_admin_data_cached.clear()  # invalida o cache: a próxima leitura já vem atualizada
+                except Exception as e:
+                    print(f"Erro ao salvar admin_data: {e}")
+
+        threading.Thread(target=_write, daemon=True).start()
+        return True
 
 
 # Funções de conveniência para compatibilidade
