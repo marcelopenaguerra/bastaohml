@@ -1524,8 +1524,7 @@ load_admin_data()  # Carregar demandas públicas também
 
 # ==================== LIMPEZA CRÍTICA: ADMIN NUNCA NA FILA ====================
 # Remover QUALQUER admin da fila (proteção adicional)
-from auth_system import is_usuario_admin
-admin_na_fila = [nome for nome in st.session_state.bastao_queue if is_usuario_admin(nome)]
+admin_na_fila = [nome for nome in st.session_state.bastao_queue if is_admin_cached(nome)]
 if admin_na_fila:
     for admin in admin_na_fila:
         st.session_state.bastao_queue.remove(admin)
@@ -1569,7 +1568,9 @@ if not is_admin and not st.session_state.ja_processou_entrada_fila:
     # Marcar que já processou (não vai processar de novo até fazer logout)
     st.session_state.ja_processou_entrada_fila = True
 
-st.html("<script>window.scrollTo(0, 0);</script>")
+if 'scroll_reset_done' not in st.session_state:
+    st.html("<script>window.scrollTo(0, 0);</script>")
+    st.session_state.scroll_reset_done = True
 
 # ==================== ENTRADA RÁPIDA ====================
 st.markdown("---")
@@ -3019,10 +3020,8 @@ with col_disponibilidade:
     }
     
     # CRÍTICO: Filtrar admins (EXCETO: Em Demanda, Almoço, Saída rápida)
-    from auth_system import is_usuario_admin
-    
     for nome in COLABORADORES:
-        eh_admin = is_usuario_admin(nome)
+        eh_admin = is_admin_cached(nome)
         status = st.session_state.status_texto.get(nome, 'Indisponível')
         
         # Admin SÓ aparece se estiver em: Atividade, Almoço ou Saída rápida
