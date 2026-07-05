@@ -1565,7 +1565,7 @@ if not is_admin and not st.session_state.ja_processou_entrada_fila:
     # Marcar que já processou (não vai processar de novo até fazer logout)
     st.session_state.ja_processou_entrada_fila = True
 
-st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
+st.html("<script>window.scrollTo(0, 0);</script>")
 
 # ==================== ENTRADA RÁPIDA ====================
 st.markdown("---")
@@ -2811,7 +2811,7 @@ with col_principal:
                     
                     with col_p2:
                         setor = st.selectbox("Setor:",
-                                            options=["Presidência","Desembargador(a)", "Plenário", "Cartório", "Gabinete", "Setores Administrativos","Geral"],
+                                            options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
                                             key="admin_setor")
                     
                     # Direcionar para colaborador específico
@@ -3344,12 +3344,12 @@ with col_disponibilidade:
                 
                 # Checkbox APENAS para admin
                 if is_admin:
-                    col_check.checkbox('', key=key_dummy, 
+                    col_check.checkbox(nome, key=key_dummy, 
                                      value=(False if title == 'Indisponível' else True),
                                      on_change=(enter_from_indisponivel if title == 'Indisponível' 
                                               else leave_specific_status),
                                      args=((nome,) if title == 'Indisponível' else (nome, title)),
-                                     label_visibility='collapsed')
+                                     label_visibility='hidden')
         st.markdown('---')
     
     
