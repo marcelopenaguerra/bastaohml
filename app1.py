@@ -692,10 +692,8 @@ def toggle_queue(colaborador):
     Alterna entrada/saída da fila via checkbox (APENAS ADMIN pode chamar)
     PROTEÇÃO: Admin nunca pode ser adicionado na fila
     """
-    from auth_system import is_usuario_admin
-    
     # PROTEÇÃO CRÍTICA: Admin nunca entra na fila
-    if is_usuario_admin(colaborador):
+    if is_admin_cached(colaborador):
         st.error(f"❌ BLOQUEADO: {colaborador} é administrador e não pode entrar na fila!")
         # Se por algum motivo estiver na fila, remover
         if colaborador in st.session_state.bastao_queue:
@@ -730,10 +728,8 @@ def resetar_bastao():
         st.error("❌ Apenas administradores podem resetar o bastão!")
         return
     
-    from auth_system import is_usuario_admin
-    
     # Guardar quem estava na fila (excluindo admins)
-    pessoas_na_fila = [nome for nome in st.session_state.bastao_queue if not is_usuario_admin(nome)]
+    pessoas_na_fila = [nome for nome in st.session_state.bastao_queue if not is_admin_cached(nome)]
     
     # Limpar fila completamente
     st.session_state.bastao_queue = []
@@ -2825,9 +2821,8 @@ with col_principal:
                     colaborador_direcionado = None
                     if direcionar:
                         # Mostrar TODOS os colaboradores (exceto admins)
-                        from auth_system import is_usuario_admin
-                        colaboradores_disponiveis = [c for c in COLABORADORES 
-                                                    if not is_usuario_admin(c)]
+                        colaboradores_disponiveis = [c for c in COLABORADORES
+                                                    if not is_admin_cached(c)]
                         
                         if colaboradores_disponiveis:
                             colaborador_direcionado = st.selectbox(
