@@ -46,25 +46,41 @@ class SharedState:
 
     @staticmethod
     def _pg_get(key: str) -> Optional[str]:
-        conn = get_connection()
-        c = conn.cursor()
-        c.execute(_q("SELECT state_json FROM app_state WHERE state_key = ?"), (key,))
-        row = c.fetchone()
-        conn.close()
-        return row[0] if row else None
+        t0 = time.time()
+        t_conn = None
+        try:
+            conn = get_connection()
+            t_conn = time.time()
+            c = conn.cursor()
+            c.execute(_q("SELECT state_json FROM app_state WHERE state_key = ?"), (key,))
+            row = c.fetchone()
+            conn.close()
+            return row[0] if row else None
+        finally:
+            t1 = time.time()
+            conn_ms = (t_conn - t0) * 1000 if t_conn else -1
+            print(f"DIAG _pg_get({key}): connect={conn_ms:.0f}ms total={((t1 - t0) * 1000):.0f}ms")
 
     @staticmethod
     def _pg_set(key: str, raw: str):
-        conn = get_connection()
-        c = conn.cursor()
-        c.execute(_q("""
-            INSERT INTO app_state (state_key, state_json, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT (state_key) DO UPDATE
-            SET state_json = EXCLUDED.state_json, updated_at = CURRENT_TIMESTAMP
-        """), (key, raw))
-        conn.commit()
-        conn.close()
+        t0 = time.time()
+        t_conn = None
+        try:
+            conn = get_connection()
+            t_conn = time.time()
+            c = conn.cursor()
+            c.execute(_q("""
+                INSERT INTO app_state (state_key, state_json, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT (state_key) DO UPDATE
+                SET state_json = EXCLUDED.state_json, updated_at = CURRENT_TIMESTAMP
+            """), (key, raw))
+            conn.commit()
+            conn.close()
+        finally:
+            t1 = time.time()
+            conn_ms = (t_conn - t0) * 1000 if t_conn else -1
+            print(f"DIAG _pg_set({key}): connect={conn_ms:.0f}ms total={((t1 - t0) * 1000):.0f}ms")
 
     @staticmethod
     def load_from_disk() -> Dict[str, Any]:
