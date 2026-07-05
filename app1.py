@@ -77,9 +77,11 @@ ADMIN_COLABORADORES = [
     "Leonardo goncalves fleury"
 ]
 
-# --- Inicializar banco PRIMEIRO ---
-# Criar banco se não existir (ANTES de tentar listar usuários)
-init_database()
+# --- Inicializar banco APENAS UMA VEZ ---
+# Usar session_state para não reconectar ao PostgreSQL a cada rerun (auto-refresh 10s)
+if 'db_initialized' not in st.session_state:
+    init_database()
+    st.session_state.db_initialized = True
 
 # --- Função para obter colaboradores do banco ---
 def get_colaboradores():
