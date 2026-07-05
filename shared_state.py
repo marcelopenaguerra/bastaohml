@@ -218,15 +218,20 @@ class SharedState:
         st.session_state['_shared_state_just_saved'] = True
     
     @staticmethod
+    @st.cache_data(ttl=15)  # PERFORMANCE: evita reconsultar o Postgres a cada rerun (colaboradores_extras/demandas_publicas mudam raramente)
+    def _fetch_admin_data_cached():
+        raw = SharedState._pg_get('admin_data') if _usar_postgres() else (
+            ADMIN_FILE.read_text() if ADMIN_FILE.exists() else None
+        )
+        return json.loads(raw) if raw else None
+
+    @staticmethod
     def load_admin_data():
-        """Carrega dados administrativos"""
+        """Carrega dados administrativos (cache de 15s para reduzir round-trips ao Postgres)"""
         with _file_lock:
             try:
-                raw = SharedState._pg_get('admin_data') if _usar_postgres() else (
-                    ADMIN_FILE.read_text() if ADMIN_FILE.exists() else None
-                )
-                if raw:
-                    data = json.loads(raw)
+                data = SharedState._fetch_admin_data_cached()
+                if data:
                     st.session_state.colaboradores_extras = data.get('colaboradores_extras', [])
                     st.session_state.demandas_publicas = data.get('demandas_publicas', [])
                     return True
@@ -248,6 +253,7 @@ class SharedState:
                     SharedState._pg_set('admin_data', raw)
                 else:
                     ADMIN_FILE.write_text(raw)
+                SharedState._fetch_admin_data_cached.clear()  # invalida o cache: a próxima leitura já vem atualizada
                 return True
             except:
                 return False
