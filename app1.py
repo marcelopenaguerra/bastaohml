@@ -2038,7 +2038,8 @@ def render_app_principal():
             st.markdown(f"**Próximo Bastão:** {proximo}")
     
         if restante:
-            st.markdown(f"**Demais na fila:** {', '.join(restante)}")
+            restante_str = [str(r) for r in restante if r is not None]
+            st.markdown(f"**Demais na fila:** {', '.join(restante_str)}")
     
         if not proximo and not restante:
             if responsavel:
