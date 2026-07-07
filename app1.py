@@ -2815,7 +2815,7 @@ def render_app_principal():
                     
                         with col_p2:
                             setor = st.selectbox("Setor:",
-                                                options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
+                                                options=["Geral", "Cartório", "Gabinete", "Setores Administrativos", "Presidência", "Plenário", "Desembargador(a)"],
                                                 key="admin_setor")
                     
                         # Direcionar para colaborador específico
