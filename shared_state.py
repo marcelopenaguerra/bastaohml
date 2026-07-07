@@ -139,6 +139,18 @@ def _empty_state() -> dict:
 class SharedState:
 
     @staticmethod
+    def init_db():
+        """Cria tabela bastao_state no PostgreSQL se não existir (chamado na inicialização)"""
+        if _usar_postgres():
+            try:
+                conn = _get_pg_conn()
+                _ensure_state_table(conn)
+                conn.close()
+                print("✅ SharedState: tabela bastao_state pronta no PostgreSQL")
+            except Exception as e:
+                print(f"ERRO SharedState.init_db: {e}")
+
+    @staticmethod
     def load_from_disk() -> dict:
         if _usar_postgres():
             data = _pg_load('bastao_state')
