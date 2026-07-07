@@ -1,286 +1,256 @@
 """
 Sistema de Estado Compartilhado
-Garante que todos os usuários vejam o mesmo estado em tempo real
+Persiste no Supabase (PostgreSQL) se configurado, senão usa arquivo local.
 """
 
 import json
 import streamlit as st
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 import threading
-import time
 
-from auth_system import _usar_postgres, get_connection, _q
-
-# Arquivos de persistência (usados apenas quando o Postgres não está configurado)
+# Arquivos locais (fallback)
 STATE_FILE = Path("bastao_state.json")
 ADMIN_FILE = Path("admin_data.json")
-LOCK_FILE = Path(".state.lock")
 
-# Lock para evitar condições de corrida
 _file_lock = threading.Lock()
 
-class SharedState:
-    """Gerenciador de estado compartilhado entre todas as sessões"""
+# ============================================================
+# CAMADA DE PERSISTÊNCIA: PostgreSQL (Supabase) ou arquivo local
+# ============================================================
 
-    @staticmethod
-    def init_db():
-        """Cria a tabela de estado no Postgres (Supabase), se configurado"""
-        if not _usar_postgres():
-            return
-        try:
-            conn = get_connection()
-            c = conn.cursor()
-            c.execute(_q("""
-                CREATE TABLE IF NOT EXISTS app_state (
-                    state_key TEXT PRIMARY KEY,
-                    state_json TEXT NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"Erro ao inicializar app_state: {e}")
+def _usar_postgres():
+    """Verifica se há PostgreSQL configurado nos secrets"""
+    try:
+        return (
+            hasattr(st, 'secrets')
+            and 'postgres' in st.secrets
+            and bool(st.secrets['postgres'].get('url') or st.secrets['postgres'].get('host'))
+        )
+    except Exception:
+        return False
 
-    @staticmethod
-    def _pg_get(key: str) -> Optional[str]:
-        conn = get_connection()
+def _get_pg_conn():
+    """Retorna conexão psycopg2 ao Supabase"""
+    import psycopg2
+    pg = st.secrets['postgres']
+    if pg.get('url'):
+        return psycopg2.connect(pg['url'])
+    return psycopg2.connect(
+        host=pg['host'], port=pg.get('port', 5432),
+        dbname=pg['dbname'], user=pg['user'],
+        password=pg['password'], sslmode=pg.get('sslmode', 'require')
+    )
+
+def _ensure_state_table(conn):
+    """Cria tabela bastao_state se não existir"""
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS bastao_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+
+def _pg_load(key: str) -> Any:
+    """Carrega valor do PostgreSQL"""
+    try:
+        conn = _get_pg_conn()
+        _ensure_state_table(conn)
         c = conn.cursor()
-        c.execute(_q("SELECT state_json FROM app_state WHERE state_key = ?"), (key,))
+        c.execute("SELECT value FROM bastao_state WHERE key = %s", (key,))
         row = c.fetchone()
         conn.close()
-        return row[0] if row else None
+        if row:
+            return json.loads(row[0])
+    except Exception as e:
+        print(f"ERRO _pg_load({key}): {e}")
+    return None
 
-    @staticmethod
-    def _pg_set(key: str, raw: str):
-        conn = get_connection()
+def _pg_save(key: str, value: Any) -> bool:
+    """Salva valor no PostgreSQL (upsert)"""
+    try:
+        conn = _get_pg_conn()
+        _ensure_state_table(conn)
         c = conn.cursor()
-        c.execute(_q("""
-            INSERT INTO app_state (state_key, state_json, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT (state_key) DO UPDATE
-            SET state_json = EXCLUDED.state_json, updated_at = CURRENT_TIMESTAMP
-        """), (key, raw))
+        c.execute("""
+            INSERT INTO bastao_state (key, value, updated_at)
+            VALUES (%s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO UPDATE
+            SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+        """, (key, json.dumps(value, default=str, ensure_ascii=False)))
         conn.commit()
         conn.close()
+        return True
+    except Exception as e:
+        print(f"ERRO _pg_save({key}): {e}")
+        return False
+
+# ============================================================
+# SERIALIZAÇÃO / DESERIALIZAÇÃO
+# ============================================================
+
+def _serialize(data: dict) -> dict:
+    """Converte datetime → string ISO para JSON"""
+    out = data.copy()
+    if isinstance(out.get('bastao_start_time'), datetime):
+        out['bastao_start_time'] = out['bastao_start_time'].isoformat()
+    out['almoco_times'] = {
+        k: v.isoformat() if isinstance(v, datetime) else v
+        for k, v in out.get('almoco_times', {}).items()
+    }
+    out['demanda_start_times'] = {
+        k: v.isoformat() if isinstance(v, datetime) else v
+        for k, v in out.get('demanda_start_times', {}).items()
+    }
+    return out
+
+def _deserialize(data: dict) -> dict:
+    """Converte strings ISO → datetime"""
+    if data.get('bastao_start_time'):
+        try:
+            data['bastao_start_time'] = datetime.fromisoformat(data['bastao_start_time'])
+        except Exception:
+            data['bastao_start_time'] = None
+    data['almoco_times'] = {
+        k: datetime.fromisoformat(v) if isinstance(v, str) else v
+        for k, v in data.get('almoco_times', {}).items()
+    }
+    data['demanda_start_times'] = {
+        k: datetime.fromisoformat(v) if isinstance(v, str) else v
+        for k, v in data.get('demanda_start_times', {}).items()
+    }
+    return data
+
+def _empty_state() -> dict:
+    return {
+        'bastao_queue': [], 'status_texto': {}, 'bastao_start_time': None,
+        'bastao_counts': {}, 'simon_ranking': [], 'daily_logs': [],
+        'checks': {}, 'almoco_times': {}, 'demanda_start_times': {}, 'demanda_logs': []
+    }
+
+# ============================================================
+# SharedState
+# ============================================================
+
+class SharedState:
 
     @staticmethod
-    def load_from_disk() -> Dict[str, Any]:
-        """Carrega estado do Postgres (se configurado) ou do disco - SEMPRE pega a versão mais recente"""
+    def load_from_disk() -> dict:
+        if _usar_postgres():
+            data = _pg_load('bastao_state')
+            if data:
+                return _deserialize(data)
+            return _empty_state()
+        # Fallback: arquivo local
         with _file_lock:
             try:
-                raw = SharedState._pg_get('shared_state') if _usar_postgres() else (
-                    STATE_FILE.read_text() if STATE_FILE.exists() else None
-                )
-
-                if raw:
-                    data = json.loads(raw)
-
-                    # Converter strings ISO para datetime
-                    if data.get('bastao_start_time'):
-                        try:
-                            data['bastao_start_time'] = datetime.fromisoformat(data['bastao_start_time'])
-                        except:
-                            data['bastao_start_time'] = None
-
-                    # Converter almoco_times
-                    almoco_times = data.get('almoco_times', {})
-                    data['almoco_times'] = {
-                        k: datetime.fromisoformat(v) if isinstance(v, str) else v
-                        for k, v in almoco_times.items()
-                    }
-
-                    # Converter demanda_start_times
-                    demanda_times = data.get('demanda_start_times', {})
-                    data['demanda_start_times'] = {
-                        k: datetime.fromisoformat(v) if isinstance(v, str) else v
-                        for k, v in demanda_times.items()
-                    }
-
-                    return data
+                if STATE_FILE.exists():
+                    return _deserialize(json.loads(STATE_FILE.read_text()))
             except Exception as e:
-                print(f"Erro ao carregar estado: {e}")
-
-        # Retornar estado vazio se falhar
-        return SharedState._get_empty_state()
+                print(f"Erro ao carregar estado local: {e}")
+        return _empty_state()
 
     @staticmethod
-    def save_to_disk(data: Dict[str, Any]):
-        """Salva estado no Postgres (se configurado) ou no disco - TODAS as sessões compartilham este estado"""
+    def save_to_disk(data: dict):
+        serialized = _serialize(data)
+        if _usar_postgres():
+            _pg_save('bastao_state', serialized)
+            return
+        # Fallback: arquivo local
         with _file_lock:
             try:
-                # Converter datetime para string ISO
-                save_data = data.copy()
-
-                if isinstance(save_data.get('bastao_start_time'), datetime):
-                    save_data['bastao_start_time'] = save_data['bastao_start_time'].isoformat()
-
-                # Converter almoco_times
-                almoco_times = save_data.get('almoco_times', {})
-                save_data['almoco_times'] = {
-                    k: v.isoformat() if isinstance(v, datetime) else v
-                    for k, v in almoco_times.items()
-                }
-
-                # Converter demanda_start_times
-                demanda_times = save_data.get('demanda_start_times', {})
-                save_data['demanda_start_times'] = {
-                    k: v.isoformat() if isinstance(v, datetime) else v
-                    for k, v in demanda_times.items()
-                }
-
-                raw = json.dumps(save_data, default=str, ensure_ascii=False, indent=2)
-                if _usar_postgres():
-                    SharedState._pg_set('shared_state', raw)
-                else:
-                    STATE_FILE.write_text(raw)
-                return True
+                STATE_FILE.write_text(json.dumps(serialized, default=str, ensure_ascii=False, indent=2))
             except Exception as e:
-                print(f"Erro ao salvar estado: {e}")
-                return False
-    
-    @staticmethod
-    def _get_empty_state() -> Dict[str, Any]:
-        """Retorna estado vazio padrão"""
-        return {
-            'bastao_queue': [],
-            'status_texto': {},
-            'bastao_start_time': None,
-            'bastao_counts': {},
-            'simon_ranking': [],
-            'daily_logs': [],
-            'checks': {},
-            'almoco_times': {},
-            'demanda_start_times': {},
-            'demanda_logs': []
-        }
-    
+                print(f"Erro ao salvar estado local: {e}")
+
     @staticmethod
     def sync_to_session_state():
-        """
-        SINCRONIZA do disco para st.session_state
-        Chame isto ANTES de renderizar qualquer coisa
-        """
-        # PERFORMANCE: se ESTA sessão acabou de salvar (rerun disparado por um
-        # clique seu), st.session_state já reflete exatamente o que foi salvo -
-        # reler agora seria 1 round-trip redundante ao Postgres. Só pula essa
-        # única vez; outras sessões/autorefresh continuam sincronizando normal.
-        if st.session_state.pop('_shared_state_just_saved', False):
-            return
-
+        """Carrega estado persistido → session_state"""
         disk_data = SharedState.load_from_disk()
-        
-        # Atualizar session_state com dados do disco
-        st.session_state.bastao_queue = disk_data.get('bastao_queue', [])
-        st.session_state.status_texto = disk_data.get('status_texto', {})
-        st.session_state.bastao_start_time = disk_data.get('bastao_start_time')
-        st.session_state.bastao_counts = disk_data.get('bastao_counts', {})
-        st.session_state.simon_ranking = disk_data.get('simon_ranking', [])
-        st.session_state.daily_logs = disk_data.get('daily_logs', [])
-        st.session_state.almoco_times = disk_data.get('almoco_times', {})
+        st.session_state.bastao_queue        = disk_data.get('bastao_queue', [])
+        st.session_state.status_texto        = disk_data.get('status_texto', {})
+        st.session_state.bastao_start_time   = disk_data.get('bastao_start_time')
+        st.session_state.bastao_counts       = disk_data.get('bastao_counts', {})
+        st.session_state.simon_ranking       = disk_data.get('simon_ranking', [])
+        st.session_state.daily_logs          = disk_data.get('daily_logs', [])
+        st.session_state.almoco_times        = disk_data.get('almoco_times', {})
         st.session_state.demanda_start_times = disk_data.get('demanda_start_times', {})
-        st.session_state.demanda_logs = disk_data.get('demanda_logs', [])
-        
-        # Restaurar checkboxes
+        st.session_state.demanda_logs        = disk_data.get('demanda_logs', [])
         for nome, val in disk_data.get('checks', {}).items():
             st.session_state[f'check_{nome}'] = val
-    
+
     @staticmethod
     def sync_from_session_state():
-        """
-        SINCRONIZA de st.session_state para o disco
-        Chame isto DEPOIS de qualquer mudança
-        """
-        # Coletar dados do session_state
-        data = {
-            'bastao_queue': st.session_state.get('bastao_queue', []),
-            'status_texto': st.session_state.get('status_texto', {}),
-            'bastao_start_time': st.session_state.get('bastao_start_time'),
-            'bastao_counts': st.session_state.get('bastao_counts', {}),
-            'simon_ranking': st.session_state.get('simon_ranking', []),
-            'daily_logs': st.session_state.get('daily_logs', []),
-            'almoco_times': st.session_state.get('almoco_times', {}),
-            'demanda_start_times': st.session_state.get('demanda_start_times', {}),
-            'demanda_logs': st.session_state.get('demanda_logs', [])
+        """Salva session_state → persistência"""
+        checks = {
+            k.replace('check_', ''): st.session_state[k]
+            for k in st.session_state.keys() if k.startswith('check_')
         }
-        
-        # Coletar checkboxes
-        checks = {}
-        for key in st.session_state.keys():
-            if key.startswith('check_'):
-                checks[key.replace('check_', '')] = st.session_state[key]
-        data['checks'] = checks
-
-        # UPDATE OTIMISTA: st.session_state já está correto em memória, então
-        # a tela pode redesenhar na hora sem esperar o Postgres. O salvamento
-        # real roda em segundo plano (thread separada, não toca session_state).
-        threading.Thread(target=SharedState.save_to_disk, args=(data,), daemon=True).start()
-        st.session_state['_shared_state_just_saved'] = True
-    
-    @staticmethod
-    @st.cache_data(ttl=15)  # PERFORMANCE: evita reconsultar o Postgres a cada rerun (colaboradores_extras/demandas_publicas mudam raramente)
-    def _fetch_admin_data_cached():
-        raw = SharedState._pg_get('admin_data') if _usar_postgres() else (
-            ADMIN_FILE.read_text() if ADMIN_FILE.exists() else None
-        )
-        return json.loads(raw) if raw else None
+        data = {
+            'bastao_queue':        st.session_state.get('bastao_queue', []),
+            'status_texto':        st.session_state.get('status_texto', {}),
+            'bastao_start_time':   st.session_state.get('bastao_start_time'),
+            'bastao_counts':       st.session_state.get('bastao_counts', {}),
+            'simon_ranking':       st.session_state.get('simon_ranking', []),
+            'daily_logs':          st.session_state.get('daily_logs', []),
+            'almoco_times':        st.session_state.get('almoco_times', {}),
+            'demanda_start_times': st.session_state.get('demanda_start_times', {}),
+            'demanda_logs':        st.session_state.get('demanda_logs', []),
+            'checks':              checks,
+        }
+        SharedState.save_to_disk(data)
 
     @staticmethod
     def load_admin_data():
-        """Carrega dados administrativos (cache de 15s para reduzir round-trips ao Postgres)"""
+        if _usar_postgres():
+            data = _pg_load('admin_data')
+            if data:
+                st.session_state.colaboradores_extras = data.get('colaboradores_extras', [])
+                st.session_state.demandas_publicas    = data.get('demandas_publicas', [])
+                return True
+            return False
         with _file_lock:
             try:
-                data = SharedState._fetch_admin_data_cached()
-                if data:
+                if ADMIN_FILE.exists():
+                    data = json.loads(ADMIN_FILE.read_text())
                     st.session_state.colaboradores_extras = data.get('colaboradores_extras', [])
-                    st.session_state.demandas_publicas = data.get('demandas_publicas', [])
+                    st.session_state.demandas_publicas    = data.get('demandas_publicas', [])
                     return True
-            except:
+            except Exception:
                 pass
         return False
 
     @staticmethod
     def save_admin_data():
-        """Salva dados administrativos"""
-        # Ler o session_state aqui (thread principal); a escrita em si roda
-        # em segundo plano (update otimista, igual sync_from_session_state).
         data = {
             'colaboradores_extras': st.session_state.get('colaboradores_extras', []),
-            'demandas_publicas': st.session_state.get('demandas_publicas', [])
+            'demandas_publicas':    st.session_state.get('demandas_publicas', []),
         }
-        raw = json.dumps(data, default=str, ensure_ascii=False, indent=2)
-
-        def _write():
-            with _file_lock:
-                try:
-                    if _usar_postgres():
-                        SharedState._pg_set('admin_data', raw)
-                    else:
-                        ADMIN_FILE.write_text(raw)
-                    SharedState._fetch_admin_data_cached.clear()  # invalida o cache: a próxima leitura já vem atualizada
-                except Exception as e:
-                    print(f"Erro ao salvar admin_data: {e}")
-
-        threading.Thread(target=_write, daemon=True).start()
-        return True
+        if _usar_postgres():
+            _pg_save('admin_data', data)
+            return True
+        with _file_lock:
+            try:
+                ADMIN_FILE.write_text(json.dumps(data, default=str, ensure_ascii=False, indent=2))
+                return True
+            except Exception:
+                return False
 
 
-# Funções de conveniência para compatibilidade
+# Funções de conveniência (compatibilidade com código existente)
 def load_state():
-    """Carrega estado compartilhado (compatibilidade)"""
     SharedState.sync_to_session_state()
     return True
 
 def save_state():
-    """Salva estado compartilhado (compatibilidade)"""
     SharedState.sync_from_session_state()
 
 def load_admin_data():
-    """Carrega dados admin (compatibilidade)"""
     return SharedState.load_admin_data()
 
 def save_admin_data():
-    """Salva dados admin (compatibilidade)"""
     return SharedState.save_admin_data()
