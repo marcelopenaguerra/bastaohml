@@ -1510,7 +1510,7 @@ apply_modern_styles()
 # ==================== AUTO-REFRESH ====================
 # Auto-refresh a cada 10 segundos (menos agressivo, evita perda de dados)
 # REDUZIDO de 3s para 10s para melhor UX ao digitar
-st_autorefresh(interval=10000, key='auto_rerun_key')
+st_autorefresh(interval=30000, key='auto_rerun_key')
 
 # ==================== VERIFICAÇÃO DE LOGIN ====================
 verificar_autenticacao()  # Se não logado, mostra tela de login e para
