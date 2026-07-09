@@ -4,105 +4,131 @@ import streamlit as st
 from pathlib import Path
 import time
 
+# Caminho do banco de dados
 DB_PATH = Path("bastao_users.db")
-LOGIN_ATTEMPTS = {}
+
+# Sistema de Rate Limiting (proteção contra brute force)
+LOGIN_ATTEMPTS = {}  # {username: [timestamp1, timestamp2, ...]}
 
 def rate_limit_login(username, max_attempts=5, window=300):
+    """
+    Limita tentativas de login a 5 por 5 minutos
+    
+    Args:
+        username: Nome do usuário
+        max_attempts: Máximo de tentativas permitidas (padrão: 5)
+        window: Janela de tempo em segundos (padrão: 300 = 5 minutos)
+    
+    Returns:
+        bool: True se pode tentar, False se bloqueado
+    """
     now = time.time()
+    
     if username not in LOGIN_ATTEMPTS:
         LOGIN_ATTEMPTS[username] = []
-    LOGIN_ATTEMPTS[username] = [t for t in LOGIN_ATTEMPTS[username] if now - t < window]
+    
+    # Limpar tentativas antigas (fora da janela)
+    LOGIN_ATTEMPTS[username] = [
+        t for t in LOGIN_ATTEMPTS[username] 
+        if now - t < window
+    ]
+    
+    # Verificar se excedeu limite
     if len(LOGIN_ATTEMPTS[username]) >= max_attempts:
         tempo_restante = int(window - (now - LOGIN_ATTEMPTS[username][0]))
         return False, tempo_restante
+    
+    # Registrar tentativa
     LOGIN_ATTEMPTS[username].append(now)
     return True, 0
 
 def hash_password(password):
+    """Hash de senha com SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
 
-_USE_POSTGRES = None
-
-def _usar_postgres():
-    global _USE_POSTGRES
-    if _USE_POSTGRES is not None:
-        return _USE_POSTGRES
-    try:
-        _USE_POSTGRES = (
-            hasattr(st, "secrets")
-            and "postgres" in st.secrets
-            and bool(st.secrets["postgres"].get("url") or st.secrets["postgres"].get("host"))
-        )
-    except Exception:
-        _USE_POSTGRES = False
-    return _USE_POSTGRES
-
-_PG_POOL = None
-
-def _get_pool():
-    """Cria (uma vez por processo) um pool de conexoes Postgres.
-    Conectar do zero leva ~1s (medido em producao) - reutilizar conexoes
-    ja abertas elimina esse custo na maioria dos cliques."""
-    global _PG_POOL
-    if _PG_POOL is not None:
-        return _PG_POOL
-    import psycopg2.pool
-    pg = st.secrets["postgres"]
-    if pg.get("url"):
-        _PG_POOL = psycopg2.pool.ThreadedConnectionPool(1, 10, pg["url"], sslmode="require")
-    else:
-        _PG_POOL = psycopg2.pool.ThreadedConnectionPool(
-            1, 10,
-            host=pg["host"],
-            port=pg.get("port", 5432),
-            dbname=pg["dbname"],
-            user=pg["user"],
-            password=pg["password"],
-            sslmode=pg.get("sslmode", "require"),
-        )
-    return _PG_POOL
-
-class _PooledConnection:
-    """Encapsula uma conexao do pool: `.close()` devolve ao pool em vez de
-    encerrar de verdade, para que todo o codigo existente (que sempre chama
-    conn.close() no final) continue funcionando sem nenhuma mudanca."""
-    def __init__(self, pool, conn):
-        self._pool = pool
-        self._conn = conn
-    def close(self):
-        self._pool.putconn(self._conn)
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-def get_connection():
-    if _usar_postgres():
-        pool = _get_pool()
-        conn = pool.getconn()
-        if conn.closed:
-            pool.putconn(conn, close=True)
-            conn = pool.getconn()
-        return _PooledConnection(pool, conn)
-    return sqlite3.connect(DB_PATH)
-
-def _q(query):
-    if _usar_postgres():
-        return query.replace("?", "%s")
-    return query
-
-def _pk():
-    return "SERIAL PRIMARY KEY" if _usar_postgres() else "INTEGER PRIMARY KEY AUTOINCREMENT"
+# REMOVIDO: salvar_sessao, carregar_sessao, limpar_sessao
+# Sessão agora é APENAS no st.session_state (não compartilha entre usuários)
 
 def init_database():
+    """
+    Inicializa banco de dados de usuários
+    GARANTIA: À prova de erros - NUNCA trava o sistema
+    """
     try:
-        usando_pg = _usar_postgres()
-        print(f"INFO: backend = {(chr(10)) + (39*chr(61))} PostgreSQL PERSISTENTE" if usando_pg else "INFO: backend = SQLite local (filesystem efemero)")
-
-        conn = get_connection()
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-
-        c.execute(f'''
+        
+        # Verificar se tabela existe
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='usuarios'")
+        table_exists = c.fetchone() is not None
+        
+        if table_exists:
+            # MIGRAÇÃO: Verificar se coluna username existe
+            c.execute("PRAGMA table_info(usuarios)")
+            columns = [column[1] for column in c.fetchall()]
+            
+            if 'username' not in columns:
+                # MIGRAÇÃO NECESSÁRIA: Adicionar coluna username
+                print("⚠️ MIGRAÇÃO: Adicionando coluna 'username' ao banco existente...")
+                
+                try:
+                    # Adicionar coluna username
+                    c.execute("ALTER TABLE usuarios ADD COLUMN username TEXT")
+                    
+                    # Atualizar usernames baseado nos nomes existentes
+                    # Mapeamento de nomes para usernames
+                    username_map = {
+                        "Álvaro Rungue": "rungue",
+                        "Daniely Cristina Cunha Mesquita": "field90",
+                        "Celso Daniel Vilano Cardoso": "field240",
+                        "Cinthia Mery Facion": "field284",
+                        "Igor Eduardo Martins": "field255",
+                        "Leonardo Gonçalves Fleury": "field273",
+                        "Leonardo goncalves fleury": "field273",  # Variante
+                        "Marcio Rodrigues Alves": "field17",
+                        "Pollyanna Silva Pereira": "field155",
+                        "Rôner Ribeiro Júnior": "field249",
+                        "Roner Ribeiro Júnior": "field249",  # Variante
+                        "Marcelo dos Santos Dutra": "marcelo",
+                        "Frederico Augusto Costa Gonçalves": "field108",
+                        "Judson Heleno Faleiro": "field153",
+                        "Marcelo Batista Amaral": "field186",
+                        "Otávio Reis": "field199",
+                        "Ramon Shander de Almeida": "field178",
+                        "Rodrigo Marinho Marques": "field41",
+                        "Warley Roberto de Oliveira Cruz": "field111",
+                    }
+                    
+                    # Buscar todos os usuários existentes
+                    c.execute("SELECT id, nome FROM usuarios")
+                    usuarios_existentes = c.fetchall()
+                    
+                    # Atualizar cada usuário com seu username
+                    for user_id, nome in usuarios_existentes:
+                        username = username_map.get(nome)
+                        if username:
+                            c.execute("UPDATE usuarios SET username = ? WHERE id = ?", (username, user_id))
+                        else:
+                            # Se não encontrar no mapa, gerar username genérico
+                            username_gerado = f"user{user_id}"
+                            c.execute("UPDATE usuarios SET username = ? WHERE id = ?", (username_gerado, user_id))
+                            print(f"⚠️ Username genérico criado para '{nome}': {username_gerado}")
+                    
+                    # Tornar username UNIQUE e NOT NULL
+                    # SQLite não permite ALTER COLUMN, então criar índice UNIQUE
+                    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_username ON usuarios(username)")
+                    
+                    conn.commit()
+                    print("✅ MIGRAÇÃO concluída com sucesso!")
+                    
+                except Exception as e:
+                    print(f"❌ Erro na migração: {e}")
+                    conn.rollback()
+        
+        # Criar tabela se não existir
+        c.execute('''
             CREATE TABLE IF NOT EXISTS usuarios (
-                id {_pk()},
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE,
                 nome TEXT UNIQUE NOT NULL,
                 senha_hash TEXT NOT NULL,
@@ -112,163 +138,187 @@ def init_database():
                 criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-
+        
+        # Verificar se já tem usuários
         c.execute("SELECT COUNT(*) FROM usuarios")
         count = c.fetchone()[0]
-        print(f"INFO: usuarios no banco = {count}")
-
+        
         if count == 0:
+            # CORREÇÃO: Usar Streamlit Secrets para controlar troca de senha
+            # Se secrets.toml tiver force_password_change = false, não força troca
             try:
-                if hasattr(st, "secrets") and "database" in st.secrets:
+                import streamlit as st
+                # Tentar acessar secrets de forma segura
+                if hasattr(st, 'secrets') and 'database' in st.secrets:
                     force_change = st.secrets["database"].get("force_password_change", True)
                 else:
                     force_change = True
                 primeiro_acesso_valor = 1 if force_change else 0
-            except Exception:
+                print(f"ℹ️ Troca de senha obrigatória: {'SIM' if primeiro_acesso_valor == 1 else 'NÃO'}")
+            except Exception as e:
+                # Se não conseguir acessar secrets, forçar troca
                 primeiro_acesso_valor = 1
-
+                print(f"ℹ️ Secrets não disponível ({e}) - forçando troca de senha")
+            
+            # Criar usuários com username (ID) conforme lista fornecida
             usuarios_iniciais = [
-                ("rungue",   "Álvaro Rungue",                         "admin123", 1),
-                ("field90",  "Daniely Cristina Cunha Mesquita",       "admin123", 1),
-                ("field240", "Celso Daniel Vilano Cardoso",           "admin123", 1),
-                ("field284", "Cinthia Mery Facion",                   "admin123", 1),
-                ("field255", "Igor Eduardo Martins",                   "admin123", 1),
-                ("field273", "Leonardo Gonçalves Fleury",             "admin123", 1),
-                ("field17",  "Marcio Rodrigues Alves",                "admin123", 1),
-                ("field155", "Pollyanna Silva Pereira",               "admin123", 1),
-                ("field249", "Rôner Ribeiro Júnior",                  "admin123", 1),
-                ("marcelo",  "Marcelo dos Santos Dutra",              "admin123", 1),
-                ("field108", "Frederico Augusto Costa Gonçalves",     "user123",  0),
-                ("field153", "Judson Heleno Faleiro",                 "user123",  0),
-                ("field186", "Marcelo Batista Amaral",                "user123",  0),
-                ("field199", "Otávio Reis",                           "user123",  0),
-                ("field178", "Ramon Shander de Almeida",              "user123",  0),
-                ("field41",  "Rodrigo Marinho Marques",               "user123",  0),
-                ("field111", "Warley Roberto de Oliveira Cruz",       "user123",  0),
+                # (username, nome, senha, is_admin)
+                ("rungue", "Álvaro Rungue", "admin123", 1),
+                ("field90", "Daniely Cristina Cunha Mesquita", "admin123", 1),
+                ("field240", "Celso Daniel Vilano Cardoso", "admin123", 1),
+                ("field284", "Cinthia Mery Facion", "admin123", 1),
+                ("field255", "Igor Eduardo Martins", "admin123", 1),
+                ("field273", "Leonardo Gonçalves Fleury", "admin123", 1),
+                ("field17", "Marcio Rodrigues Alves", "admin123", 1),
+                ("field155", "Pollyanna Silva Pereira", "admin123", 1),
+                ("field249", "Rôner Ribeiro Júnior", "admin123", 1),
+                ("marcelo", "Marcelo dos Santos Dutra", "admin123", 1),
+                ("field108", "Frederico Augusto Costa Gonçalves", "user123", 0),
+                ("field153", "Judson Heleno Faleiro", "user123", 0),
+                ("field186", "Marcelo Batista Amaral", "user123", 0),
+                ("field199", "Otávio Reis", "user123", 0),
+                ("field178", "Ramon Shander de Almeida", "user123", 0),
+                ("field41", "Rodrigo Marinho Marques", "user123", 0),
+                ("field111", "Warley Roberto de Oliveira Cruz", "user123", 0),
             ]
-
+            
             for username, nome, senha, is_admin in usuarios_iniciais:
                 senha_hash = hash_password(senha)
                 try:
                     c.execute(
-                        _q("INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, ?)"),
+                        "INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, ?)",
                         (username, nome, senha_hash, is_admin, primeiro_acesso_valor)
                     )
-                except Exception:
-                    if usando_pg:
-                        conn.rollback()
-
+                except sqlite3.IntegrityError:
+                    # Usuário já existe - pular (pode acontecer em migrações)
+                    print(f"⚠️ Usuário {username} já existe - pulando...")
+        
         conn.commit()
         conn.close()
-
-        if usando_pg:
-            print("OK: PostgreSQL conectado - senhas persistentes!")
-        else:
-            print("AVISO: SQLite local - senhas podem resetar em restarts")
-
+        
     except Exception as e:
-        print(f"ERRO init_database: {e}")
+        # PROTEÇÃO MÁXIMA: Qualquer erro aqui não trava o sistema
+        print(f"⚠️ AVISO: Erro ao inicializar banco: {e}")
+        print("   O sistema continuará funcionando, mas pode ser necessário resetar o banco.")
+        print("   Execute: python resetar_banco.py")
+        # NÃO fazer raise - deixar sistema continuar
 
 def verificar_login(nome, senha):
+    """
+    Verifica credenciais e retorna dados do usuário
+    SEGURANÇA: Rate limiting de 5 tentativas por 5 minutos
+    """
+    # RATE LIMITING: Verificar se usuário não está bloqueado
     pode_tentar, tempo_restante = rate_limit_login(nome)
     if not pode_tentar:
-        m, s = tempo_restante // 60, tempo_restante % 60
-        return {"bloqueado": True, "mensagem": f"Muitas tentativas. Tente em {m}min {s}s"}
-    try:
-        conn = get_connection()
-        c = conn.cursor()
-        senha_hash = hash_password(senha)
-        c.execute(
-            _q("""SELECT id, username, nome, is_admin, ativo, primeiro_acesso
-               FROM usuarios WHERE (username = ? OR nome = ?) AND senha_hash = ?"""),
-            (nome, nome, senha_hash)
-        )
-        resultado = c.fetchone()
-        conn.close()
-        if resultado and resultado[4]:
-            return {
-                "id": resultado[0],
-                "username": resultado[1],
-                "nome": resultado[2],
-                "is_admin": bool(resultado[3]),
-                "ativo": bool(resultado[4]),
-                "primeiro_acesso": bool(resultado[5])
-            }
-    except Exception as e:
-        print(f"ERRO verificar_login: {e}")
+        minutos = tempo_restante // 60
+        segundos = tempo_restante % 60
+        return {
+            'bloqueado': True,
+            'mensagem': f"Muitas tentativas. Tente novamente em {minutos}min {segundos}s"
+        }
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    senha_hash = hash_password(senha)
+    
+    # Buscar por USERNAME ou NOME
+    c.execute(
+        """SELECT id, username, nome, is_admin, ativo, primeiro_acesso 
+           FROM usuarios 
+           WHERE (username = ? OR nome = ?) AND senha_hash = ?""",
+        (nome, nome, senha_hash)
+    )
+    
+    resultado = c.fetchone()
+    conn.close()
+    
+    if resultado and resultado[4]:  # Se encontrou e está ativo
+        return {
+            'id': resultado[0],
+            'username': resultado[1],
+            'nome': resultado[2],  # NOME COMPLETO para exibição
+            'is_admin': bool(resultado[3]),
+            'ativo': bool(resultado[4]),
+            'primeiro_acesso': bool(resultado[5])
+        }
     return None
 
 def listar_usuarios_ativos():
-    try:
-        conn = get_connection()
-        c = conn.cursor()
-        c.execute("SELECT nome FROM usuarios WHERE ativo = 1 ORDER BY nome")
-        usuarios = [row[0] for row in c.fetchall()]
-        conn.close()
-        return usuarios
-    except Exception as e:
-        print(f"ERRO listar_usuarios: {e}")
-        return []
+    """Lista todos os usuários ativos"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT nome FROM usuarios WHERE ativo = 1 ORDER BY nome")
+    usuarios = [row[0] for row in c.fetchall()]
+    conn.close()
+    return usuarios
 
 def adicionar_usuario(username, nome, senha, is_admin=False):
+    """
+    Adiciona novo usuário com USERNAME
+    Args:
+        username: ID/username (field90, rungue, etc)
+        nome: Nome completo
+        senha: Senha inicial
+        is_admin: Se é administrador
+    """
     try:
-        conn = get_connection()
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         senha_hash = hash_password(senha)
         c.execute(
-            _q("INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, 1)"),
+            "INSERT INTO usuarios (username, nome, senha_hash, is_admin, primeiro_acesso) VALUES (?, ?, ?, ?, 1)",
             (username, nome, senha_hash, 1 if is_admin else 0)
         )
         conn.commit()
         conn.close()
         return True
-    except Exception:
-        return False
+    except sqlite3.IntegrityError:
+        return False  # Usuário já existe
 
 def remover_usuario(nome):
+    """Remove usuário permanentemente do banco (DELETE real)"""
     try:
-        conn = get_connection()
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute(_q("DELETE FROM usuarios WHERE nome = ?"), (nome,))
+        c.execute("DELETE FROM usuarios WHERE nome = ?", (nome,))
         conn.commit()
-        afetadas = c.rowcount
+        linhas_afetadas = c.rowcount
         conn.close()
-        return afetadas > 0
-    except Exception:
+        return linhas_afetadas > 0
+    except Exception as e:
         return False
 
 def desativar_usuario(nome):
+    """Desativa usuário sem remover do banco (soft delete)"""
     try:
-        conn = get_connection()
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute(_q("UPDATE usuarios SET ativo = 0 WHERE nome = ?"), (nome,))
+        c.execute("UPDATE usuarios SET ativo = 0 WHERE nome = ?", (nome,))
         conn.commit()
         conn.close()
         return True
-    except Exception:
+    except Exception as e:
         return False
 
 def alterar_senha(nome, senha_nova):
-    try:
-        conn = get_connection()
-        c = conn.cursor()
-        senha_hash = hash_password(senha_nova)
-        c.execute(
-            _q("UPDATE usuarios SET senha_hash = ?, primeiro_acesso = 0 WHERE nome = ?"),
-            (senha_hash, nome)
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"ERRO alterar_senha: {e}")
+    """Altera senha do usuário e marca que não é mais primeiro acesso"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    senha_hash = hash_password(senha_nova)
+    c.execute(
+        "UPDATE usuarios SET senha_hash = ?, primeiro_acesso = 0 WHERE nome = ?", 
+        (senha_hash, nome)
+    )
+    conn.commit()
+    conn.close()
 
 def is_usuario_admin(nome):
-    try:
-        conn = get_connection()
-        c = conn.cursor()
-        c.execute(_q("SELECT is_admin FROM usuarios WHERE nome = ? AND ativo = 1"), (nome,))
-        resultado = c.fetchone()
-        conn.close()
-        return bool(resultado[0]) if resultado else False
-    except Exception:
-        return False
+    """Verifica se usuário é admin"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT is_admin FROM usuarios WHERE nome = ? AND ativo = 1", (nome,))
+    resultado = c.fetchone()
+    conn.close()
+    return bool(resultado[0]) if resultado else False

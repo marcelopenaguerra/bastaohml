@@ -235,15 +235,18 @@ def verificar_autenticacao():
             
             if usuario_nome:
                 # Token válido - restaurar sessão
-                from auth_system import is_usuario_admin, get_connection, _q
-
+                from auth_system import is_usuario_admin
+                
                 # CRÍTICO: Buscar primeiro_acesso do banco (não assumir False)
-                conn = get_connection()
+                import sqlite3
+                from pathlib import Path
+                DB_PATH = Path("bastao_users.db")
+                conn = sqlite3.connect(DB_PATH)
                 c = conn.cursor()
-                c.execute(_q("SELECT primeiro_acesso FROM usuarios WHERE nome = ?"), (usuario_nome,))
+                c.execute("SELECT primeiro_acesso FROM usuarios WHERE nome = ?", (usuario_nome,))
                 resultado = c.fetchone()
                 conn.close()
-
+                
                 precisa_trocar = bool(resultado[0]) if resultado else False
                 
                 st.session_state.logged_in = True

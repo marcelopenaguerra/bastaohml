@@ -77,15 +77,11 @@ ADMIN_COLABORADORES = [
     "Leonardo goncalves fleury"
 ]
 
-# --- Inicializar banco APENAS UMA VEZ ---
-# Usar session_state para não reconectar ao PostgreSQL a cada rerun (auto-refresh 10s)
-if 'db_initialized' not in st.session_state:
-    init_database()
-    SharedState.init_db()
-    st.session_state.db_initialized = True
+# --- Inicializar banco PRIMEIRO ---
+# Criar banco se não existir (ANTES de tentar listar usuários)
+init_database()
 
 # --- Função para obter colaboradores do banco ---
-@st.cache_data(ttl=60)  # PERFORMANCE: evita reconectar ao Postgres a cada rerun (auto-refresh 10s)
 def get_colaboradores():
     """Retorna lista atualizada de colaboradores do banco de dados"""
     try:
@@ -692,8 +688,10 @@ def toggle_queue(colaborador):
     Alterna entrada/saída da fila via checkbox (APENAS ADMIN pode chamar)
     PROTEÇÃO: Admin nunca pode ser adicionado na fila
     """
+    from auth_system import is_usuario_admin
+    
     # PROTEÇÃO CRÍTICA: Admin nunca entra na fila
-    if is_admin_cached(colaborador):
+    if is_usuario_admin(colaborador):
         st.error(f"❌ BLOQUEADO: {colaborador} é administrador e não pode entrar na fila!")
         # Se por algum motivo estiver na fila, remover
         if colaborador in st.session_state.bastao_queue:
@@ -728,8 +726,10 @@ def resetar_bastao():
         st.error("❌ Apenas administradores podem resetar o bastão!")
         return
     
+    from auth_system import is_usuario_admin
+    
     # Guardar quem estava na fila (excluindo admins)
-    pessoas_na_fila = [nome for nome in st.session_state.bastao_queue if not is_admin_cached(nome)]
+    pessoas_na_fila = [nome for nome in st.session_state.bastao_queue if not is_usuario_admin(nome)]
     
     # Limpar fila completamente
     st.session_state.bastao_queue = []
@@ -1508,606 +1508,358 @@ apply_modern_styles()
 # ==================== AUTO-REFRESH ====================
 # Auto-refresh a cada 10 segundos (menos agressivo, evita perda de dados)
 # REDUZIDO de 3s para 10s para melhor UX ao digitar
-st_autorefresh(interval=300000, key='auto_rerun_key')
+st_autorefresh(interval=10000, key='auto_rerun_key')
 
 # ==================== VERIFICAÇÃO DE LOGIN ====================
 verificar_autenticacao()  # Se não logado, mostra tela de login e para
 
-@st.fragment
-def render_app_principal():
+# ==================== SINCRONIZAÇÃO DE ESTADO ====================
+# CRÍTICO: Sincronizar SEMPRE do disco para manter guias sincronizadas
+SharedState.sync_to_session_state()
+load_admin_data()  # Carregar demandas públicas também
 
-    # ==================== SINCRONIZAÇÃO DE ESTADO ====================
-    # CRÍTICO: Sincronizar SEMPRE do disco para manter guias sincronizadas
-    SharedState.sync_to_session_state()
-    load_admin_data()  # Carregar demandas públicas também
+# ==================== LIMPEZA CRÍTICA: ADMIN NUNCA NA FILA ====================
+# Remover QUALQUER admin da fila (proteção adicional)
+from auth_system import is_usuario_admin
+admin_na_fila = [nome for nome in st.session_state.bastao_queue if is_usuario_admin(nome)]
+if admin_na_fila:
+    for admin in admin_na_fila:
+        st.session_state.bastao_queue.remove(admin)
+        st.session_state[f'check_{admin}'] = False
+    save_state()
+    st.warning(f"⚠️ Admin(s) removido(s) da fila: {', '.join(admin_na_fila)}")
 
-    # ==================== LIMPEZA CRÍTICA: ADMIN NUNCA NA FILA ====================
-    # Remover QUALQUER admin da fila (proteção adicional)
-    admin_na_fila = [nome for nome in st.session_state.bastao_queue if is_admin_cached(nome)]
-    if admin_na_fila:
-        for admin in admin_na_fila:
-            st.session_state.bastao_queue.remove(admin)
-            st.session_state[f'check_{admin}'] = False
+# A partir daqui, usuário está autenticado e tem estado sincronizado
+
+# Adicionar automaticamente na fila ao fazer login (APENAS UMA VEZ)
+# CRÍTICO: ADMIN NÃO ENTRA NA FILA NUNCA
+usuario_atual = st.session_state.usuario_logado
+is_admin = st.session_state.get('is_admin', False)
+
+# Flag de controle - se já processou entrada deste usuário NESTA SESSÃO
+if 'ja_processou_entrada_fila' not in st.session_state:
+    st.session_state.ja_processou_entrada_fila = False
+
+# ADMIN não entra na fila
+if not is_admin and not st.session_state.ja_processou_entrada_fila:
+    # Verificar status atual
+    status_atual = st.session_state.status_texto.get(usuario_atual, '')
+    
+    # Statuses que IMPEDEM entrada automática (só atividade em andamento)
+    statuses_bloqueantes = ['Almoço', 'Saída rápida', 'Atividade:']
+    esta_bloqueado = any(status in status_atual for status in statuses_bloqueantes)
+    
+    # Se está ausente OU sem status, adicionar à fila
+    if not esta_bloqueado:
+        if usuario_atual not in st.session_state.bastao_queue:
+            st.session_state.bastao_queue.append(usuario_atual)
+            st.session_state[f'check_{usuario_atual}'] = True
+        
+        # Limpar status Ausente/Indisponível
+        if status_atual in ['Ausente', 'Indisponível', '']:
+            st.session_state.status_texto[usuario_atual] = ''
+        
+        check_and_assume_baton()
         save_state()
-        st.warning(f"⚠️ Admin(s) removido(s) da fila: {', '.join(admin_na_fila)}")
-
-    # A partir daqui, usuário está autenticado e tem estado sincronizado
-
-    # Adicionar automaticamente na fila ao fazer login (APENAS UMA VEZ)
-    # CRÍTICO: ADMIN NÃO ENTRA NA FILA NUNCA
-    usuario_atual = st.session_state.usuario_logado
-    is_admin = st.session_state.get('is_admin', False)
-
-    # Flag de controle - se já processou entrada deste usuário NESTA SESSÃO
-    if 'ja_processou_entrada_fila' not in st.session_state:
-        st.session_state.ja_processou_entrada_fila = False
-
-    # ADMIN não entra na fila
-    if not is_admin and not st.session_state.ja_processou_entrada_fila:
-        # Verificar status atual
-        status_atual = st.session_state.status_texto.get(usuario_atual, '')
     
-        # Statuses que IMPEDEM entrada automática (só atividade em andamento)
-        statuses_bloqueantes = ['Almoço', 'Saída rápida', 'Atividade:']
-        esta_bloqueado = any(status in status_atual for status in statuses_bloqueantes)
-    
-        # Se está ausente OU sem status, adicionar à fila
-        if not esta_bloqueado:
-            if usuario_atual not in st.session_state.bastao_queue:
-                st.session_state.bastao_queue.append(usuario_atual)
-                st.session_state[f'check_{usuario_atual}'] = True
-        
-            # Limpar status Ausente/Indisponível
-            if status_atual in ['Ausente', 'Indisponível', '']:
-                st.session_state.status_texto[usuario_atual] = ''
-        
-            check_and_assume_baton()
-            save_state()
-    
-        # Marcar que já processou (não vai processar de novo até fazer logout)
-        st.session_state.ja_processou_entrada_fila = True
+    # Marcar que já processou (não vai processar de novo até fazer logout)
+    st.session_state.ja_processou_entrada_fila = True
 
-    if 'scroll_reset_done' not in st.session_state:
-        st.html("<script>window.scrollTo(0, 0);</script>")
-        st.session_state.scroll_reset_done = True
+st.components.v1.html("<script>window.scrollTo(0, 0);</script>", height=0)
 
-    # ==================== ENTRADA RÁPIDA ====================
-    st.markdown("---")
+# ==================== ENTRADA RÁPIDA ====================
+st.markdown("---")
 
-    # Verificar timeout de almoço (1 hora)
-    check_almoco_timeout()
+# Verificar timeout de almoço (1 hora)
+check_almoco_timeout()
 
-    # Verificar timeout de saída rápida (15 minutos)
-    check_saida_rapida_timeout()
+# Verificar timeout de saída rápida (15 minutos)
+check_saida_rapida_timeout()
 
-    # Verificar timeout de demanda (50 minutos)
-    check_demanda_timeout()
+# Verificar timeout de demanda (50 minutos)
+check_demanda_timeout()
 
-    # ==================== HEADER ====================
-    # Título centralizado no topo
-    st.markdown("""
-    <style>
-    .header-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        border-bottom: 3px solid #2563eb;
-    }
+# ==================== HEADER ====================
+# Título centralizado no topo
+st.markdown("""
+<style>
+.header-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    border-bottom: 3px solid #2563eb;
+}
 
-    .header-title {
-        color: #0f172a;
-        margin: 0;
-        font-size: 2rem;
-        font-weight: 700;
-        text-align: center;
-    }
+.header-title {
+    color: #0f172a;
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+    text-align: center;
+}
 
-    .header-subtitle {
-        color: #64748b;
-        margin: 0.5rem 0 0 0;
-        font-size: 0.95rem;
-        font-weight: 500;
-        text-align: center;
-    }
-    </style>
+.header-subtitle {
+    color: #64748b;
+    margin: 0.5rem 0 0 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    text-align: center;
+}
+</style>
 
-    <div class="header-card">
-        <h1 class="header-title">Controle de Bastão</h1>
-        <p class="header-subtitle">Setor de Informática • TJMG • 2026</p>
+<div class="header-card">
+    <h1 class="header-title">Controle de Bastão</h1>
+    <p class="header-subtitle">Setor de Informática • TJMG • 2026</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ==================== CARD DE USUÁRIO ====================
+# Card de usuário no canto superior direito
+col_spacer, col_user_header = st.columns([3, 1])
+
+with col_user_header:
+    st.markdown(f"""
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                padding: 0.75rem 1rem; 
+                border-radius: 8px; 
+                box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+                text-align: right;
+                margin-top: 0.5rem;'>
+        <div style='color: white; font-size: 0.95rem; font-weight: 600; margin-bottom: 0.15rem;'>
+            {st.session_state.usuario_logado}
+        </div>
+        <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem;'>
+            {'Admin' if st.session_state.is_admin else 'Colaborador'}
+        </div>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Botão Sair
+    if st.button("Sair", help="Fazer Logout", use_container_width=True, key="btn_logout_header"):
+        usuario_atual = st.session_state.usuario_logado
+        if usuario_atual:
+            # Registrar horário de logout
+            if 'logout_times' not in st.session_state:
+                st.session_state.logout_times = {}
+            st.session_state.logout_times[usuario_atual] = now_brasilia()
+            
+            # Remover da fila
+            if usuario_atual in st.session_state.bastao_queue:
+                st.session_state.bastao_queue.remove(usuario_atual)
+            st.session_state.status_texto[usuario_atual] = 'Ausente'
+            st.session_state[f'check_{usuario_atual}'] = False
+            SharedState.sync_from_session_state()
+        fazer_logout()
 
-    # ==================== CARD DE USUÁRIO ====================
-    # Card de usuário no canto superior direito
-    col_spacer, col_user_header = st.columns([3, 1])
+st.markdown("---")
 
-    with col_user_header:
+# Layout principal - mesma proporção do header (3:1)
+col_principal, col_disponibilidade = st.columns([3, 1])
+queue = st.session_state.bastao_queue
+responsavel = next((c for c, s in st.session_state.status_texto.items() if 'Bastão' in s), None)
+
+current_index = queue.index(responsavel) if responsavel in queue else -1
+proximo_index = find_next_holder_index(current_index, queue)
+proximo = queue[proximo_index] if proximo_index != -1 else None
+
+restante = []
+if proximo_index != -1:
+    num_q = len(queue)
+    start_check_idx = (proximo_index + 1) % num_q
+    current_check_idx = start_check_idx
+    checked_count = 0
+    while checked_count < num_q:
+        if current_check_idx == start_check_idx and checked_count > 0:
+            break
+        if 0 <= current_check_idx < num_q:
+            colaborador = queue[current_check_idx]
+            if colaborador != responsavel and colaborador != proximo and st.session_state.get(f'check_{colaborador}'):
+                restante.append(colaborador)
+        current_check_idx = (current_check_idx + 1) % num_q
+        checked_count += 1
+
+with col_principal:
+    if responsavel:
+        # Barra sticky que fica fixa no topo ao rolar
         st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                    padding: 0.75rem 1rem; 
-                    border-radius: 8px; 
-                    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-                    text-align: right;
-                    margin-top: 0.5rem;'>
-            <div style='color: white; font-size: 0.95rem; font-weight: 600; margin-bottom: 0.15rem;'>
-                {st.session_state.usuario_logado}
-            </div>
-            <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem;'>
-                {'Admin' if st.session_state.is_admin else 'Colaborador'}
+        <style>
+        .sticky-bar {{
+            position: fixed;
+            top: 3.5rem;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            z-index: 999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            font-size: 1rem;
+            font-weight: 600;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }}
+        
+        .sticky-bar.visible {{
+            opacity: 1;
+        }}
+        
+        .sticky-label {{
+            font-size: 0.75rem;
+            font-weight: 500;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }}
+        
+        .sticky-nome {{
+            font-size: 1.1rem;
+            font-weight: 700;
+        }}
+        </style>
+        
+        <div class="sticky-bar" id="stickyBar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink: 0;">
+                <rect x="10" y="2" width="4" height="20" rx="2" fill="white"/>
+                <circle cx="12" cy="3" r="2" fill="white"/>
+            </svg>
+            <span class="sticky-label">Bastão com:</span>
+            <span class="sticky-nome">{responsavel}</span>
+        </div>
+        
+        <script>
+        window.addEventListener('scroll', function() {{
+            const stickyBar = document.getElementById('stickyBar');
+            if (window.scrollY > 300) {{
+                stickyBar.classList.add('visible');
+            }} else {{
+                stickyBar.classList.remove('visible');
+            }}
+        }});
+        </script>
+        """, unsafe_allow_html=True)
+        
+        # Card normal do responsável
+        st.markdown(f"""
+        <style>
+        .responsavel-card {{
+            background: white;
+            border: 2px solid #e2e8f0;
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }}
+        
+        .responsavel-label {{
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #64748b;
+            margin-bottom: 0.5rem;
+        }}
+        
+        .responsavel-nome {{
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1e293b;
+            line-height: 1.2;
+        }}
+        </style>
+        
+        <div class="responsavel-card">
+            <div>
+                <div class="responsavel-label">
+                    Responsável Atual
+                </div>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div class="responsavel-nome">
+                        {responsavel}
+                    </div>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="flex-shrink: 0; opacity: 0.6;">
+                        <rect x="10" y="2" width="4" height="20" rx="2" fill="#2563eb"/>
+                        <circle cx="12" cy="3" r="2" fill="#2563eb"/>
+                    </svg>
+                </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-    
-        # Botão Sair
-        if st.button("Sair", help="Fazer Logout", use_container_width=True, key="btn_logout_header"):
-            usuario_atual = st.session_state.usuario_logado
-            if usuario_atual:
-                # Registrar horário de logout
-                if 'logout_times' not in st.session_state:
-                    st.session_state.logout_times = {}
-                st.session_state.logout_times[usuario_atual] = now_brasilia()
-            
-                # Remover da fila
-                if usuario_atual in st.session_state.bastao_queue:
-                    st.session_state.bastao_queue.remove(usuario_atual)
-                st.session_state.status_texto[usuario_atual] = 'Ausente'
-                st.session_state[f'check_{usuario_atual}'] = False
-                SharedState.sync_from_session_state()
-            fazer_logout()
-
-    st.markdown("---")
-
-    # Layout principal - mesma proporção do header (3:1)
-    col_principal, col_disponibilidade = st.columns([3, 1])
-    queue = st.session_state.bastao_queue
-    responsavel = next((c for c, s in st.session_state.status_texto.items() if 'Bastão' in s), None)
-
-    current_index = queue.index(responsavel) if responsavel in queue else -1
-    proximo_index = find_next_holder_index(current_index, queue)
-    proximo = queue[proximo_index] if proximo_index != -1 else None
-
-    restante = []
-    if proximo_index != -1:
-        num_q = len(queue)
-        start_check_idx = (proximo_index + 1) % num_q
-        current_check_idx = start_check_idx
-        checked_count = 0
-        while checked_count < num_q:
-            if current_check_idx == start_check_idx and checked_count > 0:
-                break
-            if 0 <= current_check_idx < num_q:
-                colaborador = queue[current_check_idx]
-                if colaborador != responsavel and colaborador != proximo and st.session_state.get(f'check_{colaborador}'):
-                    restante.append(colaborador)
-            current_check_idx = (current_check_idx + 1) % num_q
-            checked_count += 1
-
-    with col_principal:
-        if responsavel:
-            # Barra sticky que fica fixa no topo ao rolar
-            st.markdown(f"""
-            <style>
-            .sticky-bar {{
-                position: fixed;
-                top: 3.5rem;
-                left: 0;
-                right: 0;
-                background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
-                color: white;
-                padding: 0.75rem 1.5rem;
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-                z-index: 999;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 1rem;
-                font-size: 1rem;
-                font-weight: 600;
-                opacity: 0;
-                transition: opacity 0.3s ease;
-            }}
         
-            .sticky-bar.visible {{
-                opacity: 1;
-            }}
+        # Métrica de tempo com bastão
+        duration = timedelta()
+        if st.session_state.bastao_start_time:
+            duration = now_brasilia() - st.session_state.bastao_start_time
         
-            .sticky-label {{
-                font-size: 0.75rem;
-                font-weight: 500;
-                opacity: 0.9;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-            }}
+        st.markdown(f"""
+        <style>
+        .metric-card {{
+            background: white;
+            border: 1px solid #e2e8f0;
+            padding: 0.875rem;
+            border-radius: 10px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }}
         
-            .sticky-nome {{
-                font-size: 1.1rem;
-                font-weight: 700;
-            }}
-            </style>
+        .metric-label {{
+            color: #64748b;
+            font-size: 0.8rem;
+            font-weight: 500;
+            margin-bottom: 0.375rem;
+        }}
         
-            <div class="sticky-bar" id="stickyBar">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink: 0;">
-                    <rect x="10" y="2" width="4" height="20" rx="2" fill="white"/>
-                    <circle cx="12" cy="3" r="2" fill="white"/>
-                </svg>
-                <span class="sticky-label">Bastão com:</span>
-                <span class="sticky-nome">{responsavel}</span>
+        .metric-value {{
+            color: #1e293b;
+            font-size: 1.25rem;
+            font-weight: 700;
+        }}
+        </style>
+        
+        <div class="metric-card">
+            <div class="metric-label">
+                ⏱️ Tempo com Bastão
             </div>
-        
-            <script>
-            window.addEventListener('scroll', function() {{
-                const stickyBar = document.getElementById('stickyBar');
-                if (window.scrollY > 300) {{
-                    stickyBar.classList.add('visible');
-                }} else {{
-                    stickyBar.classList.remove('visible');
-                }}
-            }});
-            </script>
-            """, unsafe_allow_html=True)
-        
-            # Card normal do responsável
-            st.markdown(f"""
-            <style>
-            .responsavel-card {{
-                background: white;
-                border: 2px solid #e2e8f0;
-                padding: 1rem;
-                border-radius: 12px;
-                margin-bottom: 0.75rem;
-                box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-            }}
-        
-            .responsavel-label {{
-                font-size: 0.7rem;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.1em;
-                color: #64748b;
-                margin-bottom: 0.5rem;
-            }}
-        
-            .responsavel-nome {{
-                font-size: 1.5rem;
-                font-weight: 700;
-                color: #1e293b;
-                line-height: 1.2;
-            }}
-            </style>
-        
-            <div class="responsavel-card">
-                <div>
-                    <div class="responsavel-label">
-                        Responsável Atual
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 1rem;">
-                        <div class="responsavel-nome">
-                            {responsavel}
-                        </div>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="flex-shrink: 0; opacity: 0.6;">
-                            <rect x="10" y="2" width="4" height="20" rx="2" fill="#2563eb"/>
-                            <circle cx="12" cy="3" r="2" fill="#2563eb"/>
-                        </svg>
-                    </div>
-                </div>
+            <div class="metric-value">
+                {format_time_duration(duration)}
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
         
-            # Métrica de tempo com bastão
-            duration = timedelta()
-            if st.session_state.bastao_start_time:
-                duration = now_brasilia() - st.session_state.bastao_start_time
-        
-            st.markdown(f"""
-            <style>
-            .metric-card {{
-                background: white;
-                border: 1px solid #e2e8f0;
-                padding: 0.875rem;
-                border-radius: 10px;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-            }}
-        
-            .metric-label {{
-                color: #64748b;
-                font-size: 0.8rem;
-                font-weight: 500;
-                margin-bottom: 0.375rem;
-            }}
-        
-            .metric-value {{
-                color: #1e293b;
-                font-size: 1.25rem;
-                font-weight: 700;
-            }}
-            </style>
-        
-            <div class="metric-card">
-                <div class="metric-label">
-                    ⏱️ Tempo com Bastão
-                </div>
-                <div class="metric-value">
-                    {format_time_duration(duration)}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-            # ========== DEMANDAS PÚBLICAS PISCANDO (ITEM 10) ==========
-            # TODOS (incluindo ADMINS) podem ver e assumir demandas
-            # CRÍTICO: Filtrar por usuario_logado, NÃO por quem tem o bastão
-            usuario_logado = st.session_state.usuario_logado
-            demandas_ativas = [
-                d for d in st.session_state.get('demandas_publicas', []) 
-                if d.get('ativa', True) and (
-                    d.get('direcionada_para') is None or 
-                    d.get('direcionada_para') == usuario_logado
-                )
-            ]
-        
-            # ORDENAR por prioridade: Urgente > Alta > Média > Baixa
-            prioridade_ordem = {'Urgente': 0, 'Alta': 1, 'Média': 2, 'Baixa': 3}
-            demandas_ativas = sorted(
-                demandas_ativas, 
-                key=lambda d: prioridade_ordem.get(d.get('prioridade', 'Média'), 2)
-            )
-        
-            if demandas_ativas:
-                # Header com contador (mostra total, mas exibe apenas 3)
-                total_demandas = len(demandas_ativas)
-                st.markdown(f"""
-                <div class="demand-alert">
-                    <strong>{total_demandas} DEMANDA(S) DISPONÍVEL(EIS) PARA ADESÃO</strong>
-                    {'<br><small style="opacity: 0.8;">Mostrando as 3 mais urgentes</small>' if total_demandas > 3 else ''}
-                </div>
-                """, unsafe_allow_html=True)
-            
-                # CSS para cards compactos
-                st.markdown("""
-                <style>
-                .demanda-card {
-                    background: white;
-                    border-left: 4px solid;
-                    padding: 0.75rem;
-                    margin-bottom: 0.5rem;
-                    border-radius: 6px;
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                    cursor: pointer;
-                    transition: all 0.2s;
-                }
-                .demanda-card:hover {
-                    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-                    transform: translateX(2px);
-                }
-                .demanda-urgente { border-left-color: #dc2626; }
-                .demanda-alta { border-left-color: #ea580c; }
-                .demanda-media { border-left-color: #f59e0b; }
-                .demanda-baixa { border-left-color: #10b981; }
-            
-                .demanda-header {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
-                    margin-bottom: 0.25rem;
-                }
-                .demanda-badge {
-                    display: inline-block;
-                    padding: 0.15rem 0.5rem;
-                    border-radius: 4px;
-                    font-size: 0.7rem;
-                    font-weight: 600;
-                    color: white;
-                }
-                .badge-urgente { background: #dc2626; }
-                .badge-alta { background: #ea580c; }
-                .badge-media { background: #f59e0b; }
-                .badge-baixa { background: #10b981; }
-            
-                .demanda-setor {
-                    color: #64748b;
-                    font-size: 0.75rem;
-                    font-weight: 500;
-                }
-                .demanda-texto {
-                    color: #1e293b;
-                    font-size: 0.85rem;
-                    line-height: 1.4;
-                    margin: 0.25rem 0;
-                }
-                .demanda-direcionada {
-                    background: #dbeafe;
-                    color: #1e40af;
-                    padding: 0.25rem 0.5rem;
-                    border-radius: 4px;
-                    font-size: 0.7rem;
-                    margin-top: 0.25rem;
-                    display: inline-block;
-                }
-                </style>
-                """, unsafe_allow_html=True)
-            
-                # Mostrar APENAS as 3 primeiras demandas (ordenadas por prioridade)
-                for dem in demandas_ativas[:3]:
-                    setor = dem.get('setor', 'Geral')
-                    prioridade = dem.get('prioridade', 'Média')
-                    texto_limpo = limpar_texto_demanda(dem['texto'])
-                
-                    # Classe CSS por prioridade
-                    prioridade_lower = prioridade.lower()
-                    card_class = f"demanda-{prioridade_lower}"
-                    badge_class = f"badge-{prioridade_lower}"
-                
-                    # Card compacto
-                    card_html = f"""
-                    <div class="demanda-card {card_class}">
-                        <div class="demanda-header">
-                            <span class="demanda-badge {badge_class}">{prioridade.upper()}</span>
-                            <span class="demanda-setor">{setor}</span>
-                        </div>
-                        <div class="demanda-texto">{texto_limpo[:80]}{'...' if len(texto_limpo) > 80 else ''}</div>
-                        {'<div class="demanda-direcionada">📌 Direcionada para você</div>' if dem.get('direcionada_para') else ''}
-                    </div>
-                    """
-                    st.markdown(card_html, unsafe_allow_html=True)
-                
-                    # Botão de aderir (compacto)
-                    col_btn = st.columns([1])[0]
-                    if col_btn.button(f"✅ Assumir", key=f"aderir_dem_{dem['id']}", use_container_width=True):
-                        # CRÍTICO: Pegar colaborador logado, NÃO o responsável atual
-                        colaborador_logado = st.session_state.usuario_logado
-                    
-                        # Entrar na demanda automaticamente
-                        atividade_desc = f"[{setor}] {texto_limpo[:100]}"
-                    
-                        # Registrar início
-                        st.session_state.demanda_start_times[colaborador_logado] = now_brasilia()
-                    
-                        # CORREÇÃO: ADICIONAR atividade ao invés de sobrescrever
-                        status_atual = st.session_state.status_texto.get(colaborador_logado, '')
-                    
-                        if status_atual and 'Atividade:' in status_atual:
-                            # Já tem atividades - ADICIONAR mais uma separada por |
-                            st.session_state.status_texto[colaborador_logado] = f"{status_atual} | {atividade_desc}"
-                        else:
-                            # Primeira atividade
-                            st.session_state.status_texto[colaborador_logado] = f"Atividade: {atividade_desc}"
-                    
-                        # Sair da fila
-                        if colaborador_logado in st.session_state.bastao_queue:
-                            st.session_state.bastao_queue.remove(colaborador_logado)
-                        st.session_state[f'check_{colaborador_logado}'] = False
-                    
-                        # Passar bastão
-                        check_and_assume_baton()
-                    
-                        # CRÍTICO: Marcar demanda como inativa (já foi assumida)
-                        dem['ativa'] = False
-                        dem['assumida_por'] = colaborador_logado
-                        dem['assumida_em'] = now_brasilia().isoformat()
-                        save_admin_data()
-                    
-                        save_state()
-                        st.success(f"{colaborador_logado} assumiu a demanda!")
-                        time.sleep(1)
-                        st.rerun()
-        else:
-            st.markdown("""
-            <style>
-            .empty-card {{
-                background: #eff6ff;
-                border: 1px solid #bfdbfe;
-                padding: 1.5rem;
-                border-radius: 10px;
-                text-align: center;
-            }}
-        
-            .empty-text {{
-                color: #1e40af;
-                font-weight: 500;
-            }}
-        
-        
-            
-                .empty-text {{
-                    color: #60a5fa;
-                }}
-            }}
-            </style>
-        
-            <div class="empty-card">
-                <div style="font-size: 2rem; margin-bottom: 0.5rem;">Usuários</div>
-                <div class="empty-text">Nenhum colaborador com o bastão</div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-        st.markdown("")
-        st.subheader("Próximos da Fila")
-    
-        # Exibir mensagem de sucesso se existir
-        if st.session_state.get('success_message') and st.session_state.get('success_message_time'):
-            elapsed = (now_brasilia() - st.session_state.success_message_time).total_seconds()
-            if elapsed < 10:
-                st.success(st.session_state.success_message)
-            else:
-                st.session_state.success_message = None
-                st.session_state.success_message_time = None
-    
-        # Exibir próximo e restante de forma mais organizada
-        if proximo:
-            st.markdown(f"**Próximo Bastão:** {proximo}")
-    
-        if restante:
-            restante_str = [str(r) for r in restante if r is not None]
-            st.markdown(f"**Demais na fila:** {', '.join(restante_str)}")
-    
-        if not proximo and not restante:
-            if responsavel:
-                st.info('ℹ️ Apenas o responsável atual é elegível.')
-            else:
-                st.info('ℹ️ Ninguém elegível na fila.')
-    
-        st.markdown("")
-        # ========== SIDEBAR - AÇÕES RÁPIDAS ==========
-        st.markdown("### Ações Rápidas")
-    
-        # BOTÃO PASSAR REMOVIDO - Item 8: Ao entrar em atividade, passa automaticamente
-    
-        # Botão Atividades
-        st.button('Atividades', on_click=toggle_view, args=('menu_atividades',), use_container_width=True, help='Marcar como Em Demanda')
-    
-        st.markdown("")
-    
-        # Status: Almoço
-        st.button('Almoço', on_click=update_status, args=('Almoço', True,), use_container_width=True)
-    
-        st.markdown("")
-    
-        # Atualizar (REDUNDANTE - auto-refresh já sincroniza, mas deixamos para feedback do usuário)
-        if st.button('Atualizar', use_container_width=True):
-            # Verificar se tem demandas disponíveis (sync já acontece automaticamente)
-            usuario_logado = st.session_state.usuario_logado
-            demandas_disponiveis = [
-                d for d in st.session_state.get('demandas_publicas', [])
-                if d.get('ativa', True) and (
-                    d.get('direcionada_para') is None or
-                    d.get('direcionada_para') == usuario_logado
-                )
-            ]
-        
-            if demandas_disponiveis:
-                st.toast(f"✅ {len(demandas_disponiveis)} demanda(s) disponível(is)!", icon="✅")
-            else:
-                st.toast("ℹ️ Nenhuma demanda cadastrada no momento", icon="ℹ️")
-    
-        # ========== DEMANDAS PÚBLICAS NA TELA PRINCIPAL ==========
-        # DUPLICAR o código que funciona em "Atividades" para aparecer SEMPRE
+        # ========== DEMANDAS PÚBLICAS PISCANDO (ITEM 10) ==========
+        # TODOS (incluindo ADMINS) podem ver e assumir demandas
+        # CRÍTICO: Filtrar por usuario_logado, NÃO por quem tem o bastão
         usuario_logado = st.session_state.usuario_logado
-        demandas_ativas_main = [
+        demandas_ativas = [
             d for d in st.session_state.get('demandas_publicas', []) 
             if d.get('ativa', True) and (
                 d.get('direcionada_para') is None or 
                 d.get('direcionada_para') == usuario_logado
             )
         ]
-    
-        if demandas_ativas_main:
-            # ORDENAR por prioridade
-            prioridade_ordem = {'Urgente': 0, 'Alta': 1, 'Média': 2, 'Baixa': 3}
-            demandas_ativas_main = sorted(
-                demandas_ativas_main, 
-                key=lambda d: prioridade_ordem.get(d.get('prioridade', 'Média'), 2)
-            )
         
-            total_demandas = len(demandas_ativas_main)
+        # ORDENAR por prioridade: Urgente > Alta > Média > Baixa
+        prioridade_ordem = {'Urgente': 0, 'Alta': 1, 'Média': 2, 'Baixa': 3}
+        demandas_ativas = sorted(
+            demandas_ativas, 
+            key=lambda d: prioridade_ordem.get(d.get('prioridade', 'Média'), 2)
+        )
+        
+        if demandas_ativas:
+            # Header com contador (mostra total, mas exibe apenas 3)
+            total_demandas = len(demandas_ativas)
             st.markdown(f"""
             <div class="demand-alert">
                 <strong>{total_demandas} DEMANDA(S) DISPONÍVEL(EIS) PARA ADESÃO</strong>
                 {'<br><small style="opacity: 0.8;">Mostrando as 3 mais urgentes</small>' if total_demandas > 3 else ''}
             </div>
             """, unsafe_allow_html=True)
-        
-            # CSS
+            
+            # CSS para cards compactos
             st.markdown("""
             <style>
             .demanda-card {
@@ -2128,6 +1880,7 @@ def render_app_principal():
             .demanda-alta { border-left-color: #ea580c; }
             .demanda-media { border-left-color: #f59e0b; }
             .demanda-baixa { border-left-color: #10b981; }
+            
             .demanda-header {
                 display: flex;
                 align-items: center;
@@ -2146,6 +1899,7 @@ def render_app_principal():
             .badge-alta { background: #ea580c; }
             .badge-media { background: #f59e0b; }
             .badge-baixa { background: #10b981; }
+            
             .demanda-setor {
                 color: #64748b;
                 font-size: 0.75rem;
@@ -2168,16 +1922,19 @@ def render_app_principal():
             }
             </style>
             """, unsafe_allow_html=True)
-        
-            # Mostrar APENAS as 3 primeiras demandas
-            for dem in demandas_ativas_main[:3]:
+            
+            # Mostrar APENAS as 3 primeiras demandas (ordenadas por prioridade)
+            for dem in demandas_ativas[:3]:
                 setor = dem.get('setor', 'Geral')
                 prioridade = dem.get('prioridade', 'Média')
                 texto_limpo = limpar_texto_demanda(dem['texto'])
+                
+                # Classe CSS por prioridade
                 prioridade_lower = prioridade.lower()
                 card_class = f"demanda-{prioridade_lower}"
                 badge_class = f"badge-{prioridade_lower}"
-            
+                
+                # Card compacto
                 card_html = f"""
                 <div class="demanda-card {card_class}">
                     <div class="demanda-header">
@@ -2189,1180 +1946,1419 @@ def render_app_principal():
                 </div>
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
-            
+                
+                # Botão de aderir (compacto)
                 col_btn = st.columns([1])[0]
-                if col_btn.button(f"✅ Assumir", key=f"aderir_dem_main_{dem['id']}", use_container_width=True):
+                if col_btn.button(f"✅ Assumir", key=f"aderir_dem_{dem['id']}", use_container_width=True):
+                    # CRÍTICO: Pegar colaborador logado, NÃO o responsável atual
                     colaborador_logado = st.session_state.usuario_logado
+                    
+                    # Entrar na demanda automaticamente
                     atividade_desc = f"[{setor}] {texto_limpo[:100]}"
+                    
+                    # Registrar início
                     st.session_state.demanda_start_times[colaborador_logado] = now_brasilia()
+                    
+                    # CORREÇÃO: ADICIONAR atividade ao invés de sobrescrever
                     status_atual = st.session_state.status_texto.get(colaborador_logado, '')
+                    
                     if status_atual and 'Atividade:' in status_atual:
+                        # Já tem atividades - ADICIONAR mais uma separada por |
                         st.session_state.status_texto[colaborador_logado] = f"{status_atual} | {atividade_desc}"
                     else:
+                        # Primeira atividade
                         st.session_state.status_texto[colaborador_logado] = f"Atividade: {atividade_desc}"
+                    
+                    # Sair da fila
                     if colaborador_logado in st.session_state.bastao_queue:
                         st.session_state.bastao_queue.remove(colaborador_logado)
                     st.session_state[f'check_{colaborador_logado}'] = False
+                    
+                    # Passar bastão
                     check_and_assume_baton()
+                    
+                    # CRÍTICO: Marcar demanda como inativa (já foi assumida)
                     dem['ativa'] = False
                     dem['assumida_por'] = colaborador_logado
                     dem['assumida_em'] = now_brasilia().isoformat()
                     save_admin_data()
+                    
                     save_state()
                     st.success(f"{colaborador_logado} assumiu a demanda!")
                     time.sleep(1)
                     st.rerun()
-    
-        # Menu de Atividades
-        if st.session_state.active_view == 'menu_atividades':
-            with st.container(border=True):
-                st.markdown("### 📋 Atividade / Em Demanda")
+    else:
+        st.markdown("""
+        <style>
+        .empty-card {{
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            padding: 1.5rem;
+            border-radius: 10px;
+            text-align: center;
+        }}
+        
+        .empty-text {{
+            color: #1e40af;
+            font-weight: 500;
+        }}
+        
+        
             
-                atividade_desc = st.text_input("Descrição da atividade:", placeholder="Ex: Suporte técnico, Desenvolvimento...")
-            
-                col_a1, col_a2 = st.columns(2)
-                with col_a1:
-                    if st.button("Confirmar Atividade", type="primary", use_container_width=True):
-                        if atividade_desc:
-                            colaborador = st.session_state.usuario_logado
-                        
-                            # Verificar se tem o bastão ANTES de mudar status
-                            tem_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador, '')
-                        
-                            # Registrar início da demanda
-                            st.session_state.demanda_start_times[colaborador] = now_brasilia()
-                        
-                            # CORREÇÃO: ADICIONAR atividade ao invés de sobrescrever
-                            atividade_nova = f"Atividade: {atividade_desc}"
-                            status_atual = st.session_state.status_texto.get(colaborador, '')
-                        
-                            if status_atual and 'Atividade:' in status_atual:
-                                # Já tem atividades - ADICIONAR mais uma
-                                status_final = f"{status_atual} | {atividade_desc}"
-                            else:
-                                # Primeira atividade
-                                status_final = atividade_nova
-                        
-                            # Remover da fila ANTES
-                            if colaborador in st.session_state.bastao_queue:
-                                st.session_state.bastao_queue.remove(colaborador)
-                            st.session_state[f'check_{colaborador}'] = False
-                        
-                            # Atualizar status SEM bastão
-                            st.session_state.status_texto[colaborador] = status_final
-                        
-                            # Se tinha bastão, passar usando force_rotate (não mexe na fila)
-                            if tem_bastao:
-                                force_rotate_bastao(colaborador)
-                                st.success(f"✅ {colaborador} entrou em atividade e o bastão foi passado!")
-                            else:
-                                save_state()
-                                st.success(f"✅ {colaborador} entrou em atividade!")
-                        
-                            st.session_state.active_view = None
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.warning("Digite a descrição da atividade.")
-                with col_a2:
-                    if st.button("Cancelar", use_container_width=True, key='cancel_atividade'):
-                        st.session_state.active_view = None
-                        st.rerun()
+            .empty-text {{
+                color: #60a5fa;
+            }}
+        }}
+        </style>
+        
+        <div class="empty-card">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">Usuários</div>
+            <div class="empty-text">Nenhum colaborador com o bastão</div>
+        </div>
+        """, unsafe_allow_html=True)
     
-        st.markdown("---")
+    st.markdown("")
+    st.subheader("Próximos da Fila")
     
-        # Ferramentas
-        st.markdown("### Ferramentas")
-    
-        # Admins têm mais botões
-        if st.session_state.is_admin:
-            col1, col2, col3 = st.columns(3)
-            col1.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
-            col2.button("Relatórios", help="Ver Registros Salvos", use_container_width=True, on_click=toggle_view, args=("relatorios",))
-            col3.button("Admin", help="Painel Administrativo (inclui Gerenciar Demandas)", use_container_width=True, on_click=toggle_view, args=("admin_panel",), type="primary")
+    # Exibir mensagem de sucesso se existir
+    if st.session_state.get('success_message') and st.session_state.get('success_message_time'):
+        elapsed = (now_brasilia() - st.session_state.success_message_time).total_seconds()
+        if elapsed < 10:
+            st.success(st.session_state.success_message)
         else:
-            col1 = st.columns(1)[0]
-            col1.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
+            st.session_state.success_message = None
+            st.session_state.success_message_time = None
     
-        # Views das ferramentas
+    # Exibir próximo e restante de forma mais organizada
+    if proximo:
+        st.markdown(f"**Próximo Bastão:** {proximo}")
     
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:     # View de Gerenciar Demandas (ADMIN)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:     if st.session_state.active_view == "gerenciar_demandas" and st.session_state.is_admin:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:         with st.container(border=True):
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("### Gerenciar Demandas")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("#### Publicar Nova Demanda")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             nova_demanda_texto = st.text_area("Descrição da demanda:", height=100, key="toolbar_nova_demanda")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             col_p1, col_p2 = st.columns(2)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             with col_p1:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 prioridade = st.radio("Prioridade:", 
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      options=["Baixa", "Média", "Alta", "Urgente"],
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      index=1,
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      horizontal=False,
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      key="toolbar_prioridade")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             with col_p2:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 setor = st.selectbox("Setor:",
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                                     options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                                     key="toolbar_setor")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             # Direcionar para colaborador específico
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             direcionar = st.checkbox("Direcionar para colaborador específico?", key="toolbar_direcionar")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             colaborador_direcionado = None
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             if direcionar:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 # Mostrar TODOS os colaboradores (exceto admins)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 from auth_system import is_usuario_admin
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 colaboradores_disponiveis = [c for c in COLABORADORES 
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                                             if not is_usuario_admin(c)]
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 if colaboradores_disponiveis:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     colaborador_direcionado = st.selectbox(
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         "Selecione o colaborador:",
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         options=sorted(colaboradores_disponiveis),
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         key="toolbar_colab_direcionado"
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     )
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     # Mostrar status do colaborador selecionado
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     status_colab = st.session_state.status_texto.get(colaborador_direcionado, 'Sem status')
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     if colaborador_direcionado in st.session_state.bastao_queue:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.info(f"✅ {colaborador_direcionado} está na fila")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     elif status_colab == 'Ausente':
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.warning(f"⚠️ {colaborador_direcionado} está Ausente (receberá demanda mesmo assim)")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     else:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.info(f"ℹ️ {colaborador_direcionado} - Status: {status_colab}")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 else:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.error("❌ Nenhum colaborador cadastrado no sistema.")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     direcionar = False
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             if st.button("Publicar Demanda", key="toolbar_pub_demanda", type="primary"):
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 if nova_demanda_texto:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     if 'demandas_publicas' not in st.session_state:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.session_state.demandas_publicas = []
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     # LIMPEZA GLOBAL
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     texto_limpo = limpar_texto_demanda(nova_demanda_texto)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     demanda_obj = {
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'id': len(st.session_state.demandas_publicas) + 1,
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'texto': texto_limpo,
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'prioridade': prioridade,
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'setor': setor,
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'criado_em': now_brasilia().isoformat(),
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'criado_por': st.session_state.usuario_logado,
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'ativa': True,
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'direcionada_para': colaborador_direcionado if direcionar else None
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     }
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.session_state.demandas_publicas.append(demanda_obj)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     save_admin_data()
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     # Se direcionada, atribuir automaticamente
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     if colaborador_direcionado:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # CRÍTICO: Verificar bastão ANTES de mudar status
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Agora mudar o status
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         atividade_desc = f"[{setor}] {texto_limpo[:100]}"
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # CORREÇÃO: ADICIONAR atividade ao invés de sobrescrever
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         status_atual = st.session_state.status_texto.get(colaborador_direcionado, '')
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if status_atual and 'Atividade:' in status_atual:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             # Já tem atividades - ADICIONAR mais uma
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.session_state.status_texto[colaborador_direcionado] = f"{status_atual} | {atividade_desc}"
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         else:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             # Primeira atividade
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Remover da fila
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if estava_na_fila:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.session_state.bastao_queue.remove(colaborador_direcionado)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Desmarcar checkbox
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.session_state[f'check_{colaborador_direcionado}'] = False
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Se tinha bastão, passar para próximo (SEM validação)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if tinha_bastao:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             force_rotate_bastao(colaborador_direcionado)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         else:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             # Se não tinha bastão, só salvar
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             save_state()
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     else:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Demanda pública (não direcionada)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         save_state()
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.success("✅ Demanda publicada!")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     time.sleep(1)
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.rerun()
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 else:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.warning("Digite a descrição da demanda!")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             # ========== LISTAR DEMANDAS ATIVAS ==========
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("---")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("#### Demandas Ativas")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             if st.session_state.get('demandas_publicas', []):
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 demandas_para_mostrar = [d for d in st.session_state.demandas_publicas if d.get('ativa', True)]
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 if demandas_para_mostrar:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     for dem in demandas_para_mostrar:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         col1, col2 = st.columns([0.9, 0.1])
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         setor_tag = dem.get('setor', 'Geral')
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         prioridade_tag = dem.get('prioridade', 'Média')
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         direcionado = dem.get('direcionada_para')
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # LIMPEZA GLOBAL
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         texto_limpo = limpar_texto_demanda(dem['texto'])
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         texto_exibicao = f"[{setor_tag}] [{prioridade_tag}] {texto_limpo[:50]}..."
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if direcionado:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             texto_exibicao = f"→ {direcionado}: " + texto_exibicao
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         col1.write(f"**{dem['id']}.** {texto_exibicao}")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if col2.button("✕", key=f"del_toolbar_dem_{dem['id']}"):
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             dem['ativa'] = False
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             save_admin_data()
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.rerun()
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 else:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.info("Nenhuma demanda ativa no momento.")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:             else:
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:                 st.info("Nenhuma demanda cadastrada ainda.")
-    # REMOVIDO - DUPLICADO NO ADMIN PANEL:     
-        # View de Erro/Novidade
-        if st.session_state.active_view == "erro_novidade":
-            with st.container(border=True):
-                st.markdown("### Bug: Registro de Erro ou Novidade (Local)")
-                en_titulo = st.text_input("Título:")
-                en_objetivo = st.text_area("Objetivo:", height=100)
-                en_relato = st.text_area("Relato:", height=200)
-                en_resultado = st.text_area("Resultado:", height=150)
+    if restante:
+        st.markdown(f"**Demais na fila:** {', '.join(restante)}")
+    
+    if not proximo and not restante:
+        if responsavel:
+            st.info('ℹ️ Apenas o responsável atual é elegível.')
+        else:
+            st.info('ℹ️ Ninguém elegível na fila.')
+    
+    st.markdown("")
+    # ========== SIDEBAR - AÇÕES RÁPIDAS ==========
+    st.markdown("### Ações Rápidas")
+    
+    # BOTÃO PASSAR REMOVIDO - Item 8: Ao entrar em atividade, passa automaticamente
+    
+    # Botão Atividades
+    st.button('Atividades', on_click=toggle_view, args=('menu_atividades',), use_container_width=True, help='Marcar como Em Demanda')
+    
+    st.markdown("")
+    
+    # Status: Almoço
+    st.button('Almoço', on_click=update_status, args=('Almoço', True,), use_container_width=True)
+    
+    st.markdown("")
+    
+    # Atualizar (REDUNDANTE - auto-refresh já sincroniza, mas deixamos para feedback do usuário)
+    if st.button('Atualizar', use_container_width=True):
+        # Verificar se tem demandas disponíveis (sync já acontece automaticamente)
+        usuario_logado = st.session_state.usuario_logado
+        demandas_disponiveis = [
+            d for d in st.session_state.get('demandas_publicas', [])
+            if d.get('ativa', True) and (
+                d.get('direcionada_para') is None or
+                d.get('direcionada_para') == usuario_logado
+            )
+        ]
+        
+        if demandas_disponiveis:
+            st.toast(f"✅ {len(demandas_disponiveis)} demanda(s) disponível(is)!", icon="✅")
+        else:
+            st.toast("ℹ️ Nenhuma demanda cadastrada no momento", icon="ℹ️")
+    
+    # ========== DEMANDAS PÚBLICAS NA TELA PRINCIPAL ==========
+    # DUPLICAR o código que funciona em "Atividades" para aparecer SEMPRE
+    usuario_logado = st.session_state.usuario_logado
+    demandas_ativas_main = [
+        d for d in st.session_state.get('demandas_publicas', []) 
+        if d.get('ativa', True) and (
+            d.get('direcionada_para') is None or 
+            d.get('direcionada_para') == usuario_logado
+        )
+    ]
+    
+    if demandas_ativas_main:
+        # ORDENAR por prioridade
+        prioridade_ordem = {'Urgente': 0, 'Alta': 1, 'Média': 2, 'Baixa': 3}
+        demandas_ativas_main = sorted(
+            demandas_ativas_main, 
+            key=lambda d: prioridade_ordem.get(d.get('prioridade', 'Média'), 2)
+        )
+        
+        total_demandas = len(demandas_ativas_main)
+        st.markdown(f"""
+        <div class="demand-alert">
+            <strong>{total_demandas} DEMANDA(S) DISPONÍVEL(EIS) PARA ADESÃO</strong>
+            {'<br><small style="opacity: 0.8;">Mostrando as 3 mais urgentes</small>' if total_demandas > 3 else ''}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # CSS
+        st.markdown("""
+        <style>
+        .demanda-card {
+            background: white;
+            border-left: 4px solid;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .demanda-card:hover {
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            transform: translateX(2px);
+        }
+        .demanda-urgente { border-left-color: #dc2626; }
+        .demanda-alta { border-left-color: #ea580c; }
+        .demanda-media { border-left-color: #f59e0b; }
+        .demanda-baixa { border-left-color: #10b981; }
+        .demanda-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.25rem;
+        }
+        .demanda-badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: white;
+        }
+        .badge-urgente { background: #dc2626; }
+        .badge-alta { background: #ea580c; }
+        .badge-media { background: #f59e0b; }
+        .badge-baixa { background: #10b981; }
+        .demanda-setor {
+            color: #64748b;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .demanda-texto {
+            color: #1e293b;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            margin: 0.25rem 0;
+        }
+        .demanda-direcionada {
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            margin-top: 0.25rem;
+            display: inline-block;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Mostrar APENAS as 3 primeiras demandas
+        for dem in demandas_ativas_main[:3]:
+            setor = dem.get('setor', 'Geral')
+            prioridade = dem.get('prioridade', 'Média')
+            texto_limpo = limpar_texto_demanda(dem['texto'])
+            prioridade_lower = prioridade.lower()
+            card_class = f"demanda-{prioridade_lower}"
+            badge_class = f"badge-{prioridade_lower}"
             
-                if st.button("Salvar Relato Localmente", type="primary", use_container_width=True):
-                    colaborador = st.session_state.usuario_logado
-                    if colaborador and colaborador != "Selecione um nome":
-                        st.success("✅ Relato salvo localmente!")
-                        erro_entry = {
-                            'timestamp': now_brasilia(),
-                            'colaborador': colaborador,
-                            'titulo': en_titulo,
-                            'objetivo': en_objetivo,
-                            'relato': en_relato,
-                            'resultado': en_resultado
-                        }
-                        st.session_state.daily_logs.append(erro_entry)
+            card_html = f"""
+            <div class="demanda-card {card_class}">
+                <div class="demanda-header">
+                    <span class="demanda-badge {badge_class}">{prioridade.upper()}</span>
+                    <span class="demanda-setor">{setor}</span>
+                </div>
+                <div class="demanda-texto">{texto_limpo[:80]}{'...' if len(texto_limpo) > 80 else ''}</div>
+                {'<div class="demanda-direcionada">📌 Direcionada para você</div>' if dem.get('direcionada_para') else ''}
+            </div>
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
+            
+            col_btn = st.columns([1])[0]
+            if col_btn.button(f"✅ Assumir", key=f"aderir_dem_main_{dem['id']}", use_container_width=True):
+                colaborador_logado = st.session_state.usuario_logado
+                atividade_desc = f"[{setor}] {texto_limpo[:100]}"
+                st.session_state.demanda_start_times[colaborador_logado] = now_brasilia()
+                status_atual = st.session_state.status_texto.get(colaborador_logado, '')
+                if status_atual and 'Atividade:' in status_atual:
+                    st.session_state.status_texto[colaborador_logado] = f"{status_atual} | {atividade_desc}"
+                else:
+                    st.session_state.status_texto[colaborador_logado] = f"Atividade: {atividade_desc}"
+                if colaborador_logado in st.session_state.bastao_queue:
+                    st.session_state.bastao_queue.remove(colaborador_logado)
+                st.session_state[f'check_{colaborador_logado}'] = False
+                check_and_assume_baton()
+                dem['ativa'] = False
+                dem['assumida_por'] = colaborador_logado
+                dem['assumida_em'] = now_brasilia().isoformat()
+                save_admin_data()
+                save_state()
+                st.success(f"{colaborador_logado} assumiu a demanda!")
+                time.sleep(1)
+                st.rerun()
+    
+    # Menu de Atividades
+    if st.session_state.active_view == 'menu_atividades':
+        with st.container(border=True):
+            st.markdown("### 📋 Atividade / Em Demanda")
+            
+            atividade_desc = st.text_input("Descrição da atividade:", placeholder="Ex: Suporte técnico, Desenvolvimento...")
+            
+            col_a1, col_a2 = st.columns(2)
+            with col_a1:
+                if st.button("Confirmar Atividade", type="primary", use_container_width=True):
+                    if atividade_desc:
+                        colaborador = st.session_state.usuario_logado
+                        
+                        # Verificar se tem o bastão ANTES de mudar status
+                        tem_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador, '')
+                        
+                        # Registrar início da demanda
+                        st.session_state.demanda_start_times[colaborador] = now_brasilia()
+                        
+                        # CORREÇÃO: ADICIONAR atividade ao invés de sobrescrever
+                        atividade_nova = f"Atividade: {atividade_desc}"
+                        status_atual = st.session_state.status_texto.get(colaborador, '')
+                        
+                        if status_atual and 'Atividade:' in status_atual:
+                            # Já tem atividades - ADICIONAR mais uma
+                            status_final = f"{status_atual} | {atividade_desc}"
+                        else:
+                            # Primeira atividade
+                            status_final = atividade_nova
+                        
+                        # Remover da fila ANTES
+                        if colaborador in st.session_state.bastao_queue:
+                            st.session_state.bastao_queue.remove(colaborador)
+                        st.session_state[f'check_{colaborador}'] = False
+                        
+                        # Atualizar status SEM bastão
+                        st.session_state.status_texto[colaborador] = status_final
+                        
+                        # Se tinha bastão, passar usando force_rotate (não mexe na fila)
+                        if tem_bastao:
+                            force_rotate_bastao(colaborador)
+                            st.success(f"✅ {colaborador} entrou em atividade e o bastão foi passado!")
+                        else:
+                            save_state()
+                            st.success(f"✅ {colaborador} entrou em atividade!")
+                        
                         st.session_state.active_view = None
-                        time.sleep(1.5)
+                        time.sleep(1)
                         st.rerun()
                     else:
-                        st.error("Selecione um colaborador.")
+                        st.warning("Digite a descrição da atividade.")
+            with col_a2:
+                if st.button("Cancelar", use_container_width=True, key='cancel_atividade'):
+                    st.session_state.active_view = None
+                    st.rerun()
     
-        elif st.session_state.active_view == "relatorios":
-            with st.container(border=True):
-                st.markdown("### 📊 Relatórios e Registros Salvos")
+    st.markdown("---")
+    
+    # Ferramentas
+    st.markdown("### Ferramentas")
+    
+    # Admins têm mais botões
+    if st.session_state.is_admin:
+        col1, col2, col3 = st.columns(3)
+        col1.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
+        col2.button("Relatórios", help="Ver Registros Salvos", use_container_width=True, on_click=toggle_view, args=("relatorios",))
+        col3.button("Admin", help="Painel Administrativo (inclui Gerenciar Demandas)", use_container_width=True, on_click=toggle_view, args=("admin_panel",), type="primary")
+    else:
+        col1 = st.columns(1)[0]
+        col1.button("Erro/Novidade", help="Relatar Erro ou Novidade", use_container_width=True, on_click=toggle_view, args=("erro_novidade",))
+    
+    # Views das ferramentas
+    
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:     # View de Gerenciar Demandas (ADMIN)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:     if st.session_state.active_view == "gerenciar_demandas" and st.session_state.is_admin:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:         with st.container(border=True):
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("### Gerenciar Demandas")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("#### Publicar Nova Demanda")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             nova_demanda_texto = st.text_area("Descrição da demanda:", height=100, key="toolbar_nova_demanda")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             col_p1, col_p2 = st.columns(2)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             with col_p1:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 prioridade = st.radio("Prioridade:", 
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      options=["Baixa", "Média", "Alta", "Urgente"],
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      index=1,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      horizontal=False,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                      key="toolbar_prioridade")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             with col_p2:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 setor = st.selectbox("Setor:",
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                     options=["Geral", "Cartório", "Gabinete", "Setores Administrativos"],
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                     key="toolbar_setor")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             # Direcionar para colaborador específico
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             direcionar = st.checkbox("Direcionar para colaborador específico?", key="toolbar_direcionar")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             colaborador_direcionado = None
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             if direcionar:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 # Mostrar TODOS os colaboradores (exceto admins)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 from auth_system import is_usuario_admin
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 colaboradores_disponiveis = [c for c in COLABORADORES 
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                                             if not is_usuario_admin(c)]
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 if colaboradores_disponiveis:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     colaborador_direcionado = st.selectbox(
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         "Selecione o colaborador:",
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         options=sorted(colaboradores_disponiveis),
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         key="toolbar_colab_direcionado"
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     )
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     # Mostrar status do colaborador selecionado
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     status_colab = st.session_state.status_texto.get(colaborador_direcionado, 'Sem status')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     if colaborador_direcionado in st.session_state.bastao_queue:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.info(f"✅ {colaborador_direcionado} está na fila")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     elif status_colab == 'Ausente':
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.warning(f"⚠️ {colaborador_direcionado} está Ausente (receberá demanda mesmo assim)")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.info(f"ℹ️ {colaborador_direcionado} - Status: {status_colab}")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.error("❌ Nenhum colaborador cadastrado no sistema.")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     direcionar = False
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             if st.button("Publicar Demanda", key="toolbar_pub_demanda", type="primary"):
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 if nova_demanda_texto:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     if 'demandas_publicas' not in st.session_state:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.session_state.demandas_publicas = []
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     # LIMPEZA GLOBAL
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     texto_limpo = limpar_texto_demanda(nova_demanda_texto)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     demanda_obj = {
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'id': len(st.session_state.demandas_publicas) + 1,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'texto': texto_limpo,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'prioridade': prioridade,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'setor': setor,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'criado_em': now_brasilia().isoformat(),
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'criado_por': st.session_state.usuario_logado,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'ativa': True,
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         'direcionada_para': colaborador_direcionado if direcionar else None
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     }
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.session_state.demandas_publicas.append(demanda_obj)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     save_admin_data()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     # Se direcionada, atribuir automaticamente
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     if colaborador_direcionado:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # CRÍTICO: Verificar bastão ANTES de mudar status
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Agora mudar o status
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         atividade_desc = f"[{setor}] {texto_limpo[:100]}"
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # CORREÇÃO: ADICIONAR atividade ao invés de sobrescrever
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         status_atual = st.session_state.status_texto.get(colaborador_direcionado, '')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if status_atual and 'Atividade:' in status_atual:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             # Já tem atividades - ADICIONAR mais uma
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.session_state.status_texto[colaborador_direcionado] = f"{status_atual} | {atividade_desc}"
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             # Primeira atividade
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Remover da fila
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if estava_na_fila:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.session_state.bastao_queue.remove(colaborador_direcionado)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Desmarcar checkbox
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.session_state[f'check_{colaborador_direcionado}'] = False
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Se tinha bastão, passar para próximo (SEM validação)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if tinha_bastao:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             force_rotate_bastao(colaborador_direcionado)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             # Se não tinha bastão, só salvar
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             save_state()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # Demanda pública (não direcionada)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         save_state()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         st.success("✅ Demanda publicada!")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     time.sleep(1)
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.rerun()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.warning("Digite a descrição da demanda!")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             # ========== LISTAR DEMANDAS ATIVAS ==========
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("---")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             st.markdown("#### Demandas Ativas")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             if st.session_state.get('demandas_publicas', []):
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 demandas_para_mostrar = [d for d in st.session_state.demandas_publicas if d.get('ativa', True)]
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 if demandas_para_mostrar:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     for dem in demandas_para_mostrar:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         col1, col2 = st.columns([0.9, 0.1])
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         setor_tag = dem.get('setor', 'Geral')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         prioridade_tag = dem.get('prioridade', 'Média')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         direcionado = dem.get('direcionada_para')
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         # LIMPEZA GLOBAL
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         texto_limpo = limpar_texto_demanda(dem['texto'])
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         texto_exibicao = f"[{setor_tag}] [{prioridade_tag}] {texto_limpo[:50]}..."
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if direcionado:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             texto_exibicao = f"→ {direcionado}: " + texto_exibicao
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         col1.write(f"**{dem['id']}.** {texto_exibicao}")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                         if col2.button("✕", key=f"del_toolbar_dem_{dem['id']}"):
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             dem['ativa'] = False
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             save_admin_data()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                             st.rerun()
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                     st.info("Nenhuma demanda ativa no momento.")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:             else:
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:                 st.info("Nenhuma demanda cadastrada ainda.")
+# REMOVIDO - DUPLICADO NO ADMIN PANEL:     
+    # View de Erro/Novidade
+    if st.session_state.active_view == "erro_novidade":
+        with st.container(border=True):
+            st.markdown("### Bug: Registro de Erro ou Novidade (Local)")
+            en_titulo = st.text_input("Título:")
+            en_objetivo = st.text_area("Objetivo:", height=100)
+            en_relato = st.text_area("Relato:", height=200)
+            en_resultado = st.text_area("Resultado:", height=150)
             
-                logs = st.session_state.daily_logs
-            
-                if not logs:
-                    st.info("📭 Nenhum registro salvo ainda.")
-                    st.markdown("---")
-                    st.markdown("**Como usar:**")
-                    st.markdown("1. Use as abas acima para registrar atendimentos, horas extras, etc.")
-                    st.markdown("2. Clique em 'Salvar Localmente'")
-                    st.markdown("3. Os registros aparecerão aqui!")
+            if st.button("Salvar Relato Localmente", type="primary", use_container_width=True):
+                colaborador = st.session_state.usuario_logado
+                if colaborador and colaborador != "Selecione um nome":
+                    st.success("✅ Relato salvo localmente!")
+                    erro_entry = {
+                        'timestamp': now_brasilia(),
+                        'colaborador': colaborador,
+                        'titulo': en_titulo,
+                        'objetivo': en_objetivo,
+                        'relato': en_relato,
+                        'resultado': en_resultado
+                    }
+                    st.session_state.daily_logs.append(erro_entry)
+                    st.session_state.active_view = None
+                    time.sleep(1.5)
+                    st.rerun()
                 else:
-                    st.success(f"✅ **{len(logs)} registro(s) encontrado(s)**")
-                
-                    # Filtros
-                    st.markdown("#### 🔍 Filtros")
-                    col_f1, col_f2, col_f3 = st.columns(3)
-                
-                    with col_f1:
-                        tipo_filtro = st.selectbox(
-                            "Tipo de Registro:",
-                            ["Todos", "Atendimentos", "Erros/Novidades", "Demandas Concluídas"]
-                        )
-                
-                    with col_f2:
-                        # Mostrar TODOS os colaboradores (não apenas quem tem logs)
-                        colaborador_filtro = st.selectbox(
-                            "Colaborador:",
-                            ["Todos"] + sorted(COLABORADORES)
-                        )
-                
-                    with col_f3:
-                        periodo_filtro = st.selectbox(
-                            "Período:",
-                            ["Todos", "Hoje", "Últimos 7 dias", "Últimos 30 dias", "Este mês", "Mês passado", "Personalizado"]
-                        )
-                
-                    # Filtro de data personalizado
-                    data_inicio = None
-                    data_fim = None
-                
-                    if periodo_filtro == "Personalizado":
-                        col_d1, col_d2 = st.columns(2)
-                        with col_d1:
-                            data_inicio = st.date_input("Data Início:", value=now_brasilia().date() - timedelta(days=30))
-                        with col_d2:
-                            data_fim = st.date_input("Data Fim:", value=now_brasilia().date())
-                
-                    st.markdown("---")
-                
-                    # Filtrar logs
-                    logs_filtrados = logs.copy()
-                
-                    # Filtro por tipo
-                    if tipo_filtro == "Atendimentos":
-                        logs_filtrados = [l for l in logs_filtrados if 'usuario' in l]
-                    elif tipo_filtro == "Erros/Novidades":
-                        logs_filtrados = [l for l in logs_filtrados if 'titulo' in l and 'relato' in l]
-                    elif tipo_filtro == "Demandas Concluídas":
-                        logs_filtrados = [l for l in logs_filtrados if l.get('tipo') == 'demanda']
-                
-                    # Filtro por colaborador
-                    if colaborador_filtro != "Todos":
-                        logs_filtrados = [l for l in logs_filtrados if l.get('colaborador') == colaborador_filtro]
-                
-                    # Filtro por período
-                    if periodo_filtro != "Todos":
-                        now = now_brasilia()
-                    
-                        if periodo_filtro == "Hoje":
-                            data_inicio = now.date()
-                            data_fim = now.date()
-                        elif periodo_filtro == "Últimos 7 dias":
-                            data_inicio = (now - timedelta(days=7)).date()
-                            data_fim = now.date()
-                        elif periodo_filtro == "Últimos 30 dias":
-                            data_inicio = (now - timedelta(days=30)).date()
-                            data_fim = now.date()
-                        elif periodo_filtro == "Este mês":
-                            data_inicio = now.replace(day=1).date()
-                            data_fim = now.date()
-                        elif periodo_filtro == "Mês passado":
-                            primeiro_dia_mes_atual = now.replace(day=1)
-                            ultimo_dia_mes_passado = primeiro_dia_mes_atual - timedelta(days=1)
-                            primeiro_dia_mes_passado = ultimo_dia_mes_passado.replace(day=1)
-                            data_inicio = primeiro_dia_mes_passado.date()
-                            data_fim = ultimo_dia_mes_passado.date()
-                        # Personalizado já tem data_inicio e data_fim definidos acima
-                    
-                        # Aplicar filtro de data
-                        if data_inicio and data_fim:
-                            logs_filtrados_por_data = []
-                            for log in logs_filtrados:
-                                timestamp = log.get('timestamp', now_brasilia())
-                                if isinstance(timestamp, str):
-                                    try:
-                                        timestamp = datetime.fromisoformat(timestamp)
-                                    except:
-                                        timestamp = now_brasilia()
-                            
-                                log_date = timestamp.date()
-                                if data_inicio <= log_date <= data_fim:
-                                    logs_filtrados_por_data.append(log)
-                        
-                            logs_filtrados = logs_filtrados_por_data
-                
-                    # Filtrar registros ocultos
-                    if 'registros_ocultos' in st.session_state and st.session_state.registros_ocultos:
-                        logs_filtrados = [
-                            l for l in logs_filtrados 
-                            if f"{l.get('timestamp', '')}{l.get('colaborador', '')}" not in st.session_state.registros_ocultos
-                        ]
-                
-                    # Mostrar resumo dos filtros ativos
-                    filtros_info = []
-                    if tipo_filtro != "Todos":
-                        filtros_info.append(f"**Tipo:** {tipo_filtro}")
-                    if colaborador_filtro != "Todos":
-                        filtros_info.append(f"**Colaborador:** {colaborador_filtro}")
-                    if periodo_filtro != "Todos":
-                        if periodo_filtro == "Personalizado" and data_inicio and data_fim:
-                            filtros_info.append(f"**Período:** {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
-                        else:
-                            filtros_info.append(f"**Período:** {periodo_filtro}")
-                
-                    if filtros_info:
-                        st.info(f"🔍 Filtros ativos: {' | '.join(filtros_info)}")
-                
-                    st.markdown(f"#### 📋 Exibindo {len(logs_filtrados)} registro(s)")
-                
-                    # Exibir logs
-                    for idx, log in enumerate(reversed(logs_filtrados), 1):
-                        timestamp = log.get('timestamp', now_brasilia())
-                        if isinstance(timestamp, str):
-                            try:
-                                timestamp = datetime.fromisoformat(timestamp)
-                            except:
-                                timestamp = now_brasilia()
-                    
-                        data_hora = timestamp.strftime("%d/%m/%Y %H:%M:%S")
-                        colaborador = log.get('colaborador', 'N/A')
-                    
-                        # Identifica tipo de registro
-                        if 'usuario' in log:
-                            # Atendimento
-                            with st.expander(f"📝 #{idx} - Atendimento - {colaborador} - {data_hora}"):
-                                st.markdown(f"**Colaborador:** {colaborador}")
-                                st.markdown(f"**📅 Data:** {log.get('data', 'N/A')}")
-                                st.markdown(f"**Usuário:** {log.get('usuario', 'N/A')}")
-                                st.markdown(f"**🏢 Setor:** {log.get('setor', 'N/A')}")
-                                st.markdown(f"**💻 Sistema:** {log.get('sistema', 'N/A')}")
-                                st.markdown(f"**📝 Descrição:** {log.get('descricao', 'N/A')}")
-                                st.markdown(f"**📞 Canal:** {log.get('canal', 'N/A')}")
-                                st.markdown(f"**✅ Desfecho:** {log.get('desfecho', 'N/A')}")
-                            
-                                # Botão deletar (APENAS ADMIN)
-                                if st.session_state.get('is_admin', False):
-                                    if st.button("🗑️ Deletar este registro", key=f"del_log_{idx}_{timestamp.timestamp()}"):
-                                        st.session_state.daily_logs.remove(log)
-                                        save_state()
-                                        st.success("✅ Registro deletado!")
-                                        time.sleep(0.5)
-                                        st.rerun()
-                    
-                        elif log.get('tipo') == 'demanda':
-                            # Demanda Concluída (ITEM 7)
-                            duracao_min = log.get('duracao_minutos', 0)
-                            with st.expander(f"📋 #{idx} - Demanda - {colaborador} - {data_hora} ({duracao_min:.0f} min)"):
-                                st.markdown(f"**Colaborador:** {colaborador}")
-                                st.markdown(f"**📝 Atividade:** {log.get('atividade', 'N/A')}")
-                            
-                                # Horários
-                                inicio = log.get('inicio', '')
-                                fim = log.get('fim', '')
-                                if inicio:
-                                    try:
-                                        inicio_dt = datetime.fromisoformat(inicio)
-                                        st.markdown(f"**🕐 Início:** {inicio_dt.strftime('%d/%m/%Y %H:%M:%S')}")
-                                    except:
-                                        st.markdown(f"**🕐 Início:** {inicio}")
-                            
-                                if fim:
-                                    try:
-                                        fim_dt = datetime.fromisoformat(fim)
-                                        st.markdown(f"**🕐 Fim:** {fim_dt.strftime('%d/%m/%Y %H:%M:%S')}")
-                                    except:
-                                        st.markdown(f"**🕐 Fim:** {fim}")
-                            
-                                st.markdown(f"**⏱️ Duração:** {duracao_min:.0f} minutos ({duracao_min/60:.1f} horas)")
-                            
-                                # Botão deletar (APENAS ADMIN)
-                                if st.session_state.get('is_admin', False):
-                                    if st.button("🗑️ Deletar este registro", key=f"del_log_demanda_{idx}_{timestamp.timestamp()}"):
-                                        st.session_state.daily_logs.remove(log)
-                                        if log in st.session_state.get('demanda_logs', []):
-                                            st.session_state.demanda_logs.remove(log)
-                                        save_state()
-                                        st.success("✅ Registro deletado!")
-                                        time.sleep(0.5)
-                                        st.rerun()
-                    
-                        elif 'inicio' in log and 'tempo' in log:
-                            # Horas Extras
-                            with st.expander(f"⏰ #{idx} - Horas Extras - {colaborador} - {data_hora}"):
-                                st.markdown(f"**Colaborador:** {colaborador}")
-                                st.markdown(f"**📅 Data:** {log.get('data', 'N/A')}")
-                                st.markdown(f"**🕐 Início:** {log.get('inicio', 'N/A')}")
-                                st.markdown(f"**⏱️ Tempo Total:** {log.get('tempo', 'N/A')}")
-                                st.markdown(f"**📝 Motivo:** {log.get('motivo', 'N/A')}")
-                            
-                                # Botão deletar (APENAS ADMIN)
-                                if st.session_state.get('is_admin', False):
-                                    if st.button("🗑️ Deletar este registro", key=f"del_log_horas_{idx}_{timestamp.timestamp()}"):
-                                        st.session_state.daily_logs.remove(log)
-                                        save_state()
-                                        st.success("✅ Registro deletado!")
-                                        time.sleep(0.5)
-                                        st.rerun()
-                    
-                        elif 'titulo' in log and 'relato' in log:
-                            # Erro/Novidade
-                            with st.expander(f"Bug: #{idx} - Erro/Novidade - {colaborador} - {data_hora}"):
-                                st.markdown(f"**👤 Autor:** {colaborador}")
-                                st.markdown(f"**📌 Título:** {log.get('titulo', 'N/A')}")
-                                st.markdown(f"**🎯 Objetivo:**")
-                                st.text(log.get('objetivo', 'N/A'))
-                                st.markdown(f"**🧪 Relato:**")
-                                st.text(log.get('relato', 'N/A'))
-                                st.markdown(f"**🏁 Resultado:**")
-                                st.text(log.get('resultado', 'N/A'))
-                            
-                                # Botão deletar (APENAS ADMIN)
-                                if st.session_state.get('is_admin', False):
-                                    if st.button("🗑️ Deletar este registro", key=f"del_log_erro_{idx}_{timestamp.timestamp()}"):
-                                        st.session_state.daily_logs.remove(log)
-                                        save_state()
-                                        st.success("✅ Registro deletado!")
-                                        time.sleep(0.5)
-                                        st.rerun()
-                
-                    st.markdown("---")
-                
-                    # Botões de ação
-                    col_a1, col_a2 = st.columns(2)
-                
-                    with col_a1:
-                        if st.button("👁️ Ocultar Todos (nesta tela)", use_container_width=True):
-                            # Criar lista de registros ocultos
-                            if 'registros_ocultos' not in st.session_state:
-                                st.session_state.registros_ocultos = []
-                        
-                            # Adicionar todos os registros filtrados à lista de ocultos
-                            for log in logs_filtrados:
-                                log_id = f"{log.get('timestamp', '')}{log.get('colaborador', '')}"
-                                if log_id not in st.session_state.registros_ocultos:
-                                    st.session_state.registros_ocultos.append(log_id)
-                        
-                            st.success("✅ Registros ocultados desta tela! (Dados preservados)")
-                            st.info("💡 Para ver novamente, feche e reabra Relatórios")
-                            time.sleep(1)
-                            st.rerun()
-                
-                    with col_a2:
-                        # Exportar para HTML (COM FILTROS APLICADOS)
-                        if st.button("📥 Gerar Relatório HTML", use_container_width=True):
-                            # Criar descrição dos filtros ativos
-                            filtros_ativos = []
-                            if tipo_filtro != "Todos":
-                                filtros_ativos.append(f"Tipo: {tipo_filtro}")
-                            if colaborador_filtro != "Todos":
-                                filtros_ativos.append(f"Colaborador: {colaborador_filtro}")
-                            if periodo_filtro != "Todos":
-                                if periodo_filtro == "Personalizado" and data_inicio and data_fim:
-                                    filtros_ativos.append(f"Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
-                                else:
-                                    filtros_ativos.append(f"Período: {periodo_filtro}")
-                        
-                            # Gerar HTML com os logs FILTRADOS
-                            html_content = gerar_html_relatorio(logs_filtrados)
-                        
-                            # Botão de download
-                            st.download_button(
-                                label="⬇️ Baixar Relatório HTML",
-                                data=html_content,
-                                file_name=f"relatorio_informatica_{now_brasilia().strftime('%Y%m%d_%H%M%S')}.html",
-                                mime="text/html"
-                            )
-                        
-                            # Exibir preview com info dos filtros
-                            st.success(f"✅ Relatório gerado com {len(logs_filtrados)} registro(s)!")
-                        
-                            if filtros_ativos:
-                                st.info(f"🔍 Filtros aplicados: {' | '.join(filtros_ativos)}")
-                            else:
-                                st.info("📊 Relatório completo (sem filtros)")
-                        
-                            st.caption("💡 Dica: Após baixar, clique duas vezes no arquivo .html para abrir no navegador")
+                    st.error("Selecione um colaborador.")
     
-        # ==================== PAINEL ADMIN BD ====================
-        # ==================== PAINEL ADMIN ====================
-        elif st.session_state.active_view == "admin_panel":
-            if not st.session_state.is_admin:
-                st.error("❌ Acesso negado! Apenas administradores.")
+    elif st.session_state.active_view == "relatorios":
+        with st.container(border=True):
+            st.markdown("### 📊 Relatórios e Registros Salvos")
+            
+            logs = st.session_state.daily_logs
+            
+            if not logs:
+                st.info("📭 Nenhum registro salvo ainda.")
+                st.markdown("---")
+                st.markdown("**Como usar:**")
+                st.markdown("1. Use as abas acima para registrar atendimentos, horas extras, etc.")
+                st.markdown("2. Clique em 'Salvar Localmente'")
+                st.markdown("3. Os registros aparecerão aqui!")
             else:
-                with st.container(border=True):
-                    st.markdown("### Painel Administrativo")
-                    st.caption(f"Admin: {st.session_state.usuario_logado}")
+                st.success(f"✅ **{len(logs)} registro(s) encontrado(s)**")
                 
-                    tab1, tab2, tab3, tab4 = st.tabs(["Cadastrar Colaborador", "Gerenciar Demandas", "Remover Usuário", "Banco de Dados"])
+                # Filtros
+                st.markdown("#### 🔍 Filtros")
+                col_f1, col_f2, col_f3 = st.columns(3)
                 
-                    # TAB 1: Cadastrar Colaborador
-                    with tab1:
-                        st.markdown("#### Adicionar Novo Colaborador")
-                        novo_username = st.text_input("Username/ID:", placeholder="Ex: field108, field153...", key="admin_novo_username", help="Username para login (field108, rungue, etc)")
-                        novo_nome = st.text_input("Nome completo:", key="admin_novo_colab")
-                        nova_senha = st.text_input("Senha inicial:", type="password", value="user123", key="admin_nova_senha")
-                        is_admin_novo = st.checkbox("É administrador?", key="admin_is_admin")
-                    
-                        if st.button("Adicionar Colaborador", key="btn_add_colab", type="primary"):
-                            if novo_username and novo_nome:
-                                from auth_system import adicionar_usuario
-                                sucesso = adicionar_usuario(novo_username, novo_nome, nova_senha, is_admin_novo)
-                                if sucesso:
-                                    # Inicializar estados
-                                    st.session_state.status_texto[novo_nome] = 'Indisponível'
-                                    st.session_state.bastao_counts[novo_nome] = 0
-                                    st.session_state[f'check_{novo_nome}'] = False
-                                    save_state()
-                                    st.success(f"✅ {novo_nome} cadastrado com sucesso! Username: {novo_username}")
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Username ou nome já existe no banco de dados!")
-                            else:
-                                st.warning("⚠️ Preencha username e nome completo!")
+                with col_f1:
+                    tipo_filtro = st.selectbox(
+                        "Tipo de Registro:",
+                        ["Todos", "Atendimentos", "Erros/Novidades", "Demandas Concluídas"]
+                    )
                 
-                    # TAB 2: Gerenciar Demandas
-                    with tab2:
-                        st.markdown("#### Publicar Nova Demanda")
-                        nova_demanda_texto = st.text_area("Descrição da demanda:", height=100, key="admin_nova_demanda")
+                with col_f2:
+                    # Mostrar TODOS os colaboradores (não apenas quem tem logs)
+                    colaborador_filtro = st.selectbox(
+                        "Colaborador:",
+                        ["Todos"] + sorted(COLABORADORES)
+                    )
+                
+                with col_f3:
+                    periodo_filtro = st.selectbox(
+                        "Período:",
+                        ["Todos", "Hoje", "Últimos 7 dias", "Últimos 30 dias", "Este mês", "Mês passado", "Personalizado"]
+                    )
+                
+                # Filtro de data personalizado
+                data_inicio = None
+                data_fim = None
+                
+                if periodo_filtro == "Personalizado":
+                    col_d1, col_d2 = st.columns(2)
+                    with col_d1:
+                        data_inicio = st.date_input("Data Início:", value=now_brasilia().date() - timedelta(days=30))
+                    with col_d2:
+                        data_fim = st.date_input("Data Fim:", value=now_brasilia().date())
+                
+                st.markdown("---")
+                
+                # Filtrar logs
+                logs_filtrados = logs.copy()
+                
+                # Filtro por tipo
+                if tipo_filtro == "Atendimentos":
+                    logs_filtrados = [l for l in logs_filtrados if 'usuario' in l]
+                elif tipo_filtro == "Erros/Novidades":
+                    logs_filtrados = [l for l in logs_filtrados if 'titulo' in l and 'relato' in l]
+                elif tipo_filtro == "Demandas Concluídas":
+                    logs_filtrados = [l for l in logs_filtrados if l.get('tipo') == 'demanda']
+                
+                # Filtro por colaborador
+                if colaborador_filtro != "Todos":
+                    logs_filtrados = [l for l in logs_filtrados if l.get('colaborador') == colaborador_filtro]
+                
+                # Filtro por período
+                if periodo_filtro != "Todos":
+                    now = now_brasilia()
                     
-                        col_p1, col_p2 = st.columns(2)
+                    if periodo_filtro == "Hoje":
+                        data_inicio = now.date()
+                        data_fim = now.date()
+                    elif periodo_filtro == "Últimos 7 dias":
+                        data_inicio = (now - timedelta(days=7)).date()
+                        data_fim = now.date()
+                    elif periodo_filtro == "Últimos 30 dias":
+                        data_inicio = (now - timedelta(days=30)).date()
+                        data_fim = now.date()
+                    elif periodo_filtro == "Este mês":
+                        data_inicio = now.replace(day=1).date()
+                        data_fim = now.date()
+                    elif periodo_filtro == "Mês passado":
+                        primeiro_dia_mes_atual = now.replace(day=1)
+                        ultimo_dia_mes_passado = primeiro_dia_mes_atual - timedelta(days=1)
+                        primeiro_dia_mes_passado = ultimo_dia_mes_passado.replace(day=1)
+                        data_inicio = primeiro_dia_mes_passado.date()
+                        data_fim = ultimo_dia_mes_passado.date()
+                    # Personalizado já tem data_inicio e data_fim definidos acima
                     
-                        with col_p1:
-                            prioridade = st.radio("Prioridade:", 
-                                                 options=["Baixa", "Média", "Alta", "Urgente"],
-                                                 index=1,
-                                                 horizontal=False,
-                                                 key="admin_prioridade")
-                    
-                        with col_p2:
-                            setor = st.selectbox("Setor:",
-                                                options=["Geral", "Cartório", "Gabinete", "Setores Administrativos", "Presidência", "Plenário", "Desembargador(a)"],
-                                                key="admin_setor")
-                    
-                        # Direcionar para colaborador específico
-                        direcionar = st.checkbox("Direcionar para colaborador específico?", key="admin_direcionar")
-                    
-                        colaborador_direcionado = None
-                        if direcionar:
-                            # Mostrar TODOS os colaboradores (exceto admins)
-                            colaboradores_disponiveis = [c for c in COLABORADORES
-                                                        if not is_admin_cached(c)]
+                    # Aplicar filtro de data
+                    if data_inicio and data_fim:
+                        logs_filtrados_por_data = []
+                        for log in logs_filtrados:
+                            timestamp = log.get('timestamp', now_brasilia())
+                            if isinstance(timestamp, str):
+                                try:
+                                    timestamp = datetime.fromisoformat(timestamp)
+                                except:
+                                    timestamp = now_brasilia()
+                            
+                            log_date = timestamp.date()
+                            if data_inicio <= log_date <= data_fim:
+                                logs_filtrados_por_data.append(log)
                         
-                            if colaboradores_disponiveis:
-                                colaborador_direcionado = st.selectbox(
-                                    "Selecione o colaborador:",
-                                    options=sorted(colaboradores_disponiveis),
-                                    key="admin_colab_direcionado"
-                                )
-                            
-                                # Mostrar status do colaborador selecionado
-                                status_colab = st.session_state.status_texto.get(colaborador_direcionado, 'Sem status')
-                                if colaborador_direcionado in st.session_state.bastao_queue:
-                                    st.info(f"✅ {colaborador_direcionado} está na fila")
-                                elif status_colab == 'Ausente':
-                                    st.warning(f"⚠️ {colaborador_direcionado} está Ausente (receberá demanda mesmo assim)")
-                                else:
-                                    st.info(f"ℹ️ {colaborador_direcionado} - Status: {status_colab}")
-                            else:
-                                st.error("❌ Nenhum colaborador cadastrado no sistema.")
-                                direcionar = False
+                        logs_filtrados = logs_filtrados_por_data
+                
+                # Filtrar registros ocultos
+                if 'registros_ocultos' in st.session_state and st.session_state.registros_ocultos:
+                    logs_filtrados = [
+                        l for l in logs_filtrados 
+                        if f"{l.get('timestamp', '')}{l.get('colaborador', '')}" not in st.session_state.registros_ocultos
+                    ]
+                
+                # Mostrar resumo dos filtros ativos
+                filtros_info = []
+                if tipo_filtro != "Todos":
+                    filtros_info.append(f"**Tipo:** {tipo_filtro}")
+                if colaborador_filtro != "Todos":
+                    filtros_info.append(f"**Colaborador:** {colaborador_filtro}")
+                if periodo_filtro != "Todos":
+                    if periodo_filtro == "Personalizado" and data_inicio and data_fim:
+                        filtros_info.append(f"**Período:** {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
+                    else:
+                        filtros_info.append(f"**Período:** {periodo_filtro}")
+                
+                if filtros_info:
+                    st.info(f"🔍 Filtros ativos: {' | '.join(filtros_info)}")
+                
+                st.markdown(f"#### 📋 Exibindo {len(logs_filtrados)} registro(s)")
+                
+                # Exibir logs
+                for idx, log in enumerate(reversed(logs_filtrados), 1):
+                    timestamp = log.get('timestamp', now_brasilia())
+                    if isinstance(timestamp, str):
+                        try:
+                            timestamp = datetime.fromisoformat(timestamp)
+                        except:
+                            timestamp = now_brasilia()
                     
-                        if st.button("Publicar Demanda", key="btn_pub_demanda", type="primary"):
-                            if nova_demanda_texto:
-                                if 'demandas_publicas' not in st.session_state:
-                                    st.session_state.demandas_publicas = []
+                    data_hora = timestamp.strftime("%d/%m/%Y %H:%M:%S")
+                    colaborador = log.get('colaborador', 'N/A')
+                    
+                    # Identifica tipo de registro
+                    if 'usuario' in log:
+                        # Atendimento
+                        with st.expander(f"📝 #{idx} - Atendimento - {colaborador} - {data_hora}"):
+                            st.markdown(f"**Colaborador:** {colaborador}")
+                            st.markdown(f"**📅 Data:** {log.get('data', 'N/A')}")
+                            st.markdown(f"**Usuário:** {log.get('usuario', 'N/A')}")
+                            st.markdown(f"**🏢 Setor:** {log.get('setor', 'N/A')}")
+                            st.markdown(f"**💻 Sistema:** {log.get('sistema', 'N/A')}")
+                            st.markdown(f"**📝 Descrição:** {log.get('descricao', 'N/A')}")
+                            st.markdown(f"**📞 Canal:** {log.get('canal', 'N/A')}")
+                            st.markdown(f"**✅ Desfecho:** {log.get('desfecho', 'N/A')}")
                             
-                                # LIMPEZA GLOBAL
-                                texto_limpo = limpar_texto_demanda(nova_demanda_texto)
-                            
-                                demanda_obj = {
-                                    'id': len(st.session_state.demandas_publicas) + 1,
-                                    'texto': texto_limpo,
-                                    'prioridade': prioridade,
-                                    'setor': setor,
-                                    'criado_em': now_brasilia().isoformat(),
-                                    'criado_por': st.session_state.usuario_logado,
-                                    'ativa': True,
-                                    'direcionada_para': colaborador_direcionado if direcionar else None
-                                }
-                                st.session_state.demandas_publicas.append(demanda_obj)
-                                save_admin_data()
-                            
-                                # Se direcionada, atribuir automaticamente
-                                if colaborador_direcionado:
-                                    # CRÍTICO: Verificar bastão ANTES de mudar status
-                                    tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
-                                    estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
-                                
-                                    # Mudar status
-                                    atividade_desc = f"[{setor}] {texto_limpo[:100]}"
-                                    st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
-                                
-                                    # CORREÇÃO: ADICIONAR atividade ao invés de sobrescrever
-                                    status_atual = st.session_state.status_texto.get(colaborador_direcionado, '')
-                                
-                                    if status_atual and 'Atividade:' in status_atual:
-                                        # Já tem atividades - ADICIONAR mais uma
-                                        st.session_state.status_texto[colaborador_direcionado] = f"{status_atual} | {atividade_desc}"
-                                    else:
-                                        # Primeira atividade
-                                        st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
-                                
-                                    # Remover da fila
-                                    if estava_na_fila:
-                                        st.session_state.bastao_queue.remove(colaborador_direcionado)
-                                
-                                    # Desmarcar checkbox
-                                    st.session_state[f'check_{colaborador_direcionado}'] = False
-                                
-                                    # Se tinha bastão, passar para próximo (SEM validação)
-                                    if tinha_bastao:
-                                        force_rotate_bastao(colaborador_direcionado)
-                                    else:
-                                        # Se não tinha bastão, só salvar
-                                        save_state()
-                                
-                                    st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
-                                else:
-                                    # Demanda pública (não direcionada)
+                            # Botão deletar (APENAS ADMIN)
+                            if st.session_state.get('is_admin', False):
+                                if st.button("🗑️ Deletar este registro", key=f"del_log_{idx}_{timestamp.timestamp()}"):
+                                    st.session_state.daily_logs.remove(log)
                                     save_state()
-                                    st.success("✅ Demanda publicada!")
+                                    st.success("✅ Registro deletado!")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                    
+                    elif log.get('tipo') == 'demanda':
+                        # Demanda Concluída (ITEM 7)
+                        duracao_min = log.get('duracao_minutos', 0)
+                        with st.expander(f"📋 #{idx} - Demanda - {colaborador} - {data_hora} ({duracao_min:.0f} min)"):
+                            st.markdown(f"**Colaborador:** {colaborador}")
+                            st.markdown(f"**📝 Atividade:** {log.get('atividade', 'N/A')}")
                             
+                            # Horários
+                            inicio = log.get('inicio', '')
+                            fim = log.get('fim', '')
+                            if inicio:
+                                try:
+                                    inicio_dt = datetime.fromisoformat(inicio)
+                                    st.markdown(f"**🕐 Início:** {inicio_dt.strftime('%d/%m/%Y %H:%M:%S')}")
+                                except:
+                                    st.markdown(f"**🕐 Início:** {inicio}")
+                            
+                            if fim:
+                                try:
+                                    fim_dt = datetime.fromisoformat(fim)
+                                    st.markdown(f"**🕐 Fim:** {fim_dt.strftime('%d/%m/%Y %H:%M:%S')}")
+                                except:
+                                    st.markdown(f"**🕐 Fim:** {fim}")
+                            
+                            st.markdown(f"**⏱️ Duração:** {duracao_min:.0f} minutos ({duracao_min/60:.1f} horas)")
+                            
+                            # Botão deletar (APENAS ADMIN)
+                            if st.session_state.get('is_admin', False):
+                                if st.button("🗑️ Deletar este registro", key=f"del_log_demanda_{idx}_{timestamp.timestamp()}"):
+                                    st.session_state.daily_logs.remove(log)
+                                    if log in st.session_state.get('demanda_logs', []):
+                                        st.session_state.demanda_logs.remove(log)
+                                    save_state()
+                                    st.success("✅ Registro deletado!")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                    
+                    elif 'inicio' in log and 'tempo' in log:
+                        # Horas Extras
+                        with st.expander(f"⏰ #{idx} - Horas Extras - {colaborador} - {data_hora}"):
+                            st.markdown(f"**Colaborador:** {colaborador}")
+                            st.markdown(f"**📅 Data:** {log.get('data', 'N/A')}")
+                            st.markdown(f"**🕐 Início:** {log.get('inicio', 'N/A')}")
+                            st.markdown(f"**⏱️ Tempo Total:** {log.get('tempo', 'N/A')}")
+                            st.markdown(f"**📝 Motivo:** {log.get('motivo', 'N/A')}")
+                            
+                            # Botão deletar (APENAS ADMIN)
+                            if st.session_state.get('is_admin', False):
+                                if st.button("🗑️ Deletar este registro", key=f"del_log_horas_{idx}_{timestamp.timestamp()}"):
+                                    st.session_state.daily_logs.remove(log)
+                                    save_state()
+                                    st.success("✅ Registro deletado!")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                    
+                    elif 'titulo' in log and 'relato' in log:
+                        # Erro/Novidade
+                        with st.expander(f"Bug: #{idx} - Erro/Novidade - {colaborador} - {data_hora}"):
+                            st.markdown(f"**👤 Autor:** {colaborador}")
+                            st.markdown(f"**📌 Título:** {log.get('titulo', 'N/A')}")
+                            st.markdown(f"**🎯 Objetivo:**")
+                            st.text(log.get('objetivo', 'N/A'))
+                            st.markdown(f"**🧪 Relato:**")
+                            st.text(log.get('relato', 'N/A'))
+                            st.markdown(f"**🏁 Resultado:**")
+                            st.text(log.get('resultado', 'N/A'))
+                            
+                            # Botão deletar (APENAS ADMIN)
+                            if st.session_state.get('is_admin', False):
+                                if st.button("🗑️ Deletar este registro", key=f"del_log_erro_{idx}_{timestamp.timestamp()}"):
+                                    st.session_state.daily_logs.remove(log)
+                                    save_state()
+                                    st.success("✅ Registro deletado!")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                
+                st.markdown("---")
+                
+                # Botões de ação
+                col_a1, col_a2 = st.columns(2)
+                
+                with col_a1:
+                    if st.button("👁️ Ocultar Todos (nesta tela)", use_container_width=True):
+                        # Criar lista de registros ocultos
+                        if 'registros_ocultos' not in st.session_state:
+                            st.session_state.registros_ocultos = []
+                        
+                        # Adicionar todos os registros filtrados à lista de ocultos
+                        for log in logs_filtrados:
+                            log_id = f"{log.get('timestamp', '')}{log.get('colaborador', '')}"
+                            if log_id not in st.session_state.registros_ocultos:
+                                st.session_state.registros_ocultos.append(log_id)
+                        
+                        st.success("✅ Registros ocultados desta tela! (Dados preservados)")
+                        st.info("💡 Para ver novamente, feche e reabra Relatórios")
+                        time.sleep(1)
+                        st.rerun()
+                
+                with col_a2:
+                    # Exportar para HTML (COM FILTROS APLICADOS)
+                    if st.button("📥 Gerar Relatório HTML", use_container_width=True):
+                        # Criar descrição dos filtros ativos
+                        filtros_ativos = []
+                        if tipo_filtro != "Todos":
+                            filtros_ativos.append(f"Tipo: {tipo_filtro}")
+                        if colaborador_filtro != "Todos":
+                            filtros_ativos.append(f"Colaborador: {colaborador_filtro}")
+                        if periodo_filtro != "Todos":
+                            if periodo_filtro == "Personalizado" and data_inicio and data_fim:
+                                filtros_ativos.append(f"Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
+                            else:
+                                filtros_ativos.append(f"Período: {periodo_filtro}")
+                        
+                        # Gerar HTML com os logs FILTRADOS
+                        html_content = gerar_html_relatorio(logs_filtrados)
+                        
+                        # Botão de download
+                        st.download_button(
+                            label="⬇️ Baixar Relatório HTML",
+                            data=html_content,
+                            file_name=f"relatorio_informatica_{now_brasilia().strftime('%Y%m%d_%H%M%S')}.html",
+                            mime="text/html"
+                        )
+                        
+                        # Exibir preview com info dos filtros
+                        st.success(f"✅ Relatório gerado com {len(logs_filtrados)} registro(s)!")
+                        
+                        if filtros_ativos:
+                            st.info(f"🔍 Filtros aplicados: {' | '.join(filtros_ativos)}")
+                        else:
+                            st.info("📊 Relatório completo (sem filtros)")
+                        
+                        st.caption("💡 Dica: Após baixar, clique duas vezes no arquivo .html para abrir no navegador")
+    
+    # ==================== PAINEL ADMIN BD ====================
+    # ==================== PAINEL ADMIN ====================
+    elif st.session_state.active_view == "admin_panel":
+        if not st.session_state.is_admin:
+            st.error("❌ Acesso negado! Apenas administradores.")
+        else:
+            with st.container(border=True):
+                st.markdown("### Painel Administrativo")
+                st.caption(f"Admin: {st.session_state.usuario_logado}")
+                
+                tab1, tab2, tab3, tab4 = st.tabs(["Cadastrar Colaborador", "Gerenciar Demandas", "Remover Usuário", "Banco de Dados"])
+                
+                # TAB 1: Cadastrar Colaborador
+                with tab1:
+                    st.markdown("#### Adicionar Novo Colaborador")
+                    novo_username = st.text_input("Username/ID:", placeholder="Ex: field108, field153...", key="admin_novo_username", help="Username para login (field108, rungue, etc)")
+                    novo_nome = st.text_input("Nome completo:", key="admin_novo_colab")
+                    nova_senha = st.text_input("Senha inicial:", type="password", value="user123", key="admin_nova_senha")
+                    is_admin_novo = st.checkbox("É administrador?", key="admin_is_admin")
+                    
+                    if st.button("Adicionar Colaborador", key="btn_add_colab", type="primary"):
+                        if novo_username and novo_nome:
+                            from auth_system import adicionar_usuario
+                            sucesso = adicionar_usuario(novo_username, novo_nome, nova_senha, is_admin_novo)
+                            if sucesso:
+                                # Inicializar estados
+                                st.session_state.status_texto[novo_nome] = 'Indisponível'
+                                st.session_state.bastao_counts[novo_nome] = 0
+                                st.session_state[f'check_{novo_nome}'] = False
+                                save_state()
+                                st.success(f"✅ {novo_nome} cadastrado com sucesso! Username: {novo_username}")
                                 time.sleep(1)
                                 st.rerun()
                             else:
-                                st.warning("Digite a descrição da demanda!")
-                    
-                        # Listar demandas ativas
-                        st.markdown("---")
-                        st.markdown("#### Demandas Ativas")
-                        if st.session_state.get('demandas_publicas', []):
-                            for dem in st.session_state.demandas_publicas:
-                                if dem.get('ativa', True):
-                                    col1, col2 = st.columns([0.9, 0.1])
-                                
-                                    setor_tag = dem.get('setor', 'Geral')
-                                    prioridade_tag = dem.get('prioridade', 'Média')
-                                    direcionado = dem.get('direcionada_para')
-                                
-                                    # LIMPEZA GLOBAL
-                                    texto_limpo = limpar_texto_demanda(dem['texto'])
-                                
-                                    texto_exibicao = f"[{setor_tag}] {texto_limpo[:50]}..."
-                                    if direcionado:
-                                        texto_exibicao = f"→ {direcionado}: " + texto_exibicao
-                                
-                                    col1.write(f"**{dem['id']}.** {texto_exibicao}")
-                                
-                                    if col2.button("✕", key=f"del_dem_{dem['id']}"):
-                                        dem['ativa'] = False
-                                        save_admin_data()
-                                        st.rerun()
+                                st.error("❌ Username ou nome já existe no banco de dados!")
                         else:
-                            st.info("Nenhuma demanda ativa no momento.")
+                            st.warning("⚠️ Preencha username e nome completo!")
                 
-                    # TAB 3: Remover Usuário
-                    with tab3:
-                        st.markdown("#### Remover Usuário")
-                        st.warning("⚠️ Esta ação é irreversível!")
+                # TAB 2: Gerenciar Demandas
+                with tab2:
+                    st.markdown("#### Publicar Nova Demanda")
+                    nova_demanda_texto = st.text_area("Descrição da demanda:", height=100, key="admin_nova_demanda")
                     
-                        from auth_system import listar_usuarios_ativos, remover_usuario
-                        usuarios_disponiveis = [u for u in listar_usuarios_ativos() if u != st.session_state.usuario_logado]
+                    col_p1, col_p2 = st.columns(2)
                     
-                        if usuarios_disponiveis:
-                            usuario_remover = st.selectbox(
-                                "Selecione o usuário para remover:",
-                                options=usuarios_disponiveis,
-                                key="remover_usuario_select"
+                    with col_p1:
+                        prioridade = st.radio("Prioridade:", 
+                                             options=["Baixa", "Média", "Alta", "Urgente"],
+                                             index=1,
+                                             horizontal=False,
+                                             key="admin_prioridade")
+                    
+                    with col_p2:
+                        setor = st.selectbox("Setor:",
+                                            options=["Presidência","Desembargador(a)", "Plenário", "Cartório", "Gabinete", "Setores Administrativos","Geral"],
+                                            key="admin_setor")
+                    
+                    # Direcionar para colaborador específico
+                    direcionar = st.checkbox("Direcionar para colaborador específico?", key="admin_direcionar")
+                    
+                    colaborador_direcionado = None
+                    if direcionar:
+                        # Mostrar TODOS os colaboradores (exceto admins)
+                        from auth_system import is_usuario_admin
+                        colaboradores_disponiveis = [c for c in COLABORADORES 
+                                                    if not is_usuario_admin(c)]
+                        
+                        if colaboradores_disponiveis:
+                            colaborador_direcionado = st.selectbox(
+                                "Selecione o colaborador:",
+                                options=sorted(colaboradores_disponiveis),
+                                key="admin_colab_direcionado"
                             )
+                            
+                            # Mostrar status do colaborador selecionado
+                            status_colab = st.session_state.status_texto.get(colaborador_direcionado, 'Sem status')
+                            if colaborador_direcionado in st.session_state.bastao_queue:
+                                st.info(f"✅ {colaborador_direcionado} está na fila")
+                            elif status_colab == 'Ausente':
+                                st.warning(f"⚠️ {colaborador_direcionado} está Ausente (receberá demanda mesmo assim)")
+                            else:
+                                st.info(f"ℹ️ {colaborador_direcionado} - Status: {status_colab}")
+                        else:
+                            st.error("❌ Nenhum colaborador cadastrado no sistema.")
+                            direcionar = False
+                    
+                    if st.button("Publicar Demanda", key="btn_pub_demanda", type="primary"):
+                        if nova_demanda_texto:
+                            if 'demandas_publicas' not in st.session_state:
+                                st.session_state.demandas_publicas = []
+                            
+                            # LIMPEZA GLOBAL
+                            texto_limpo = limpar_texto_demanda(nova_demanda_texto)
+                            
+                            demanda_obj = {
+                                'id': len(st.session_state.demandas_publicas) + 1,
+                                'texto': texto_limpo,
+                                'prioridade': prioridade,
+                                'setor': setor,
+                                'criado_em': now_brasilia().isoformat(),
+                                'criado_por': st.session_state.usuario_logado,
+                                'ativa': True,
+                                'direcionada_para': colaborador_direcionado if direcionar else None
+                            }
+                            st.session_state.demandas_publicas.append(demanda_obj)
+                            save_admin_data()
+                            
+                            # Se direcionada, atribuir automaticamente
+                            if colaborador_direcionado:
+                                # CRÍTICO: Verificar bastão ANTES de mudar status
+                                tinha_bastao = 'Bastão' in st.session_state.status_texto.get(colaborador_direcionado, '')
+                                estava_na_fila = colaborador_direcionado in st.session_state.bastao_queue
+                                
+                                # Mudar status
+                                atividade_desc = f"[{setor}] {texto_limpo[:100]}"
+                                st.session_state.demanda_start_times[colaborador_direcionado] = now_brasilia()
+                                
+                                # CORREÇÃO: ADICIONAR atividade ao invés de sobrescrever
+                                status_atual = st.session_state.status_texto.get(colaborador_direcionado, '')
+                                
+                                if status_atual and 'Atividade:' in status_atual:
+                                    # Já tem atividades - ADICIONAR mais uma
+                                    st.session_state.status_texto[colaborador_direcionado] = f"{status_atual} | {atividade_desc}"
+                                else:
+                                    # Primeira atividade
+                                    st.session_state.status_texto[colaborador_direcionado] = f"Atividade: {atividade_desc}"
+                                
+                                # Remover da fila
+                                if estava_na_fila:
+                                    st.session_state.bastao_queue.remove(colaborador_direcionado)
+                                
+                                # Desmarcar checkbox
+                                st.session_state[f'check_{colaborador_direcionado}'] = False
+                                
+                                # Se tinha bastão, passar para próximo (SEM validação)
+                                if tinha_bastao:
+                                    force_rotate_bastao(colaborador_direcionado)
+                                else:
+                                    # Se não tinha bastão, só salvar
+                                    save_state()
+                                
+                                st.success(f"✅ Demanda direcionada para {colaborador_direcionado}!")
+                            else:
+                                # Demanda pública (não direcionada)
+                                save_state()
+                                st.success("✅ Demanda publicada!")
+                            
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.warning("Digite a descrição da demanda!")
+                    
+                    # Listar demandas ativas
+                    st.markdown("---")
+                    st.markdown("#### Demandas Ativas")
+                    if st.session_state.get('demandas_publicas', []):
+                        for dem in st.session_state.demandas_publicas:
+                            if dem.get('ativa', True):
+                                col1, col2 = st.columns([0.9, 0.1])
+                                
+                                setor_tag = dem.get('setor', 'Geral')
+                                prioridade_tag = dem.get('prioridade', 'Média')
+                                direcionado = dem.get('direcionada_para')
+                                
+                                # LIMPEZA GLOBAL
+                                texto_limpo = limpar_texto_demanda(dem['texto'])
+                                
+                                texto_exibicao = f"[{setor_tag}] {texto_limpo[:50]}..."
+                                if direcionado:
+                                    texto_exibicao = f"→ {direcionado}: " + texto_exibicao
+                                
+                                col1.write(f"**{dem['id']}.** {texto_exibicao}")
+                                
+                                if col2.button("✕", key=f"del_dem_{dem['id']}"):
+                                    dem['ativa'] = False
+                                    save_admin_data()
+                                    st.rerun()
+                    else:
+                        st.info("Nenhuma demanda ativa no momento.")
+                
+                # TAB 3: Remover Usuário
+                with tab3:
+                    st.markdown("#### Remover Usuário")
+                    st.warning("⚠️ Esta ação é irreversível!")
+                    
+                    from auth_system import listar_usuarios_ativos, remover_usuario
+                    usuarios_disponiveis = [u for u in listar_usuarios_ativos() if u != st.session_state.usuario_logado]
+                    
+                    if usuarios_disponiveis:
+                        usuario_remover = st.selectbox(
+                            "Selecione o usuário para remover:",
+                            options=usuarios_disponiveis,
+                            key="remover_usuario_select"
+                        )
                         
-                            col_btn1, col_btn2 = st.columns(2)
+                        col_btn1, col_btn2 = st.columns(2)
                         
-                            with col_btn1:
-                                if st.button("🗑️ Remover Usuário", type="primary", use_container_width=True):
-                                    if remover_usuario(usuario_remover):
-                                        # Remover da fila também
-                                        if usuario_remover in st.session_state.bastao_queue:
-                                            st.session_state.bastao_queue.remove(usuario_remover)
-                                        if usuario_remover in st.session_state.status_texto:
-                                            del st.session_state.status_texto[usuario_remover]
-                                        save_state()
-                                        st.success(f"✅ Usuário {usuario_remover} removido com sucesso!")
-                                        time.sleep(1)
+                        with col_btn1:
+                            if st.button("🗑️ Remover Usuário", type="primary", use_container_width=True):
+                                if remover_usuario(usuario_remover):
+                                    # Remover da fila também
+                                    if usuario_remover in st.session_state.bastao_queue:
+                                        st.session_state.bastao_queue.remove(usuario_remover)
+                                    if usuario_remover in st.session_state.status_texto:
+                                        del st.session_state.status_texto[usuario_remover]
+                                    save_state()
+                                    st.success(f"✅ Usuário {usuario_remover} removido com sucesso!")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Erro ao remover usuário")
+                        
+                        with col_btn2:
+                            if st.button("♻️ Recriar como Admin", use_container_width=True):
+                                # Remover usuário
+                                if remover_usuario(usuario_remover):
+                                    # Recriar como admin
+                                    from auth_system import adicionar_usuario
+                                    if adicionar_usuario(usuario_remover, "admin123", is_admin=True):
+                                        # CRÍTICO: Forçar rerun para recarregar lista
+                                        st.success(f"✅ {usuario_remover} recriado como Admin!")
+                                        st.info("🔑 Senha padrão: admin123")
+                                        time.sleep(2)
                                         st.rerun()
                                     else:
-                                        st.error("❌ Erro ao remover usuário")
-                        
-                            with col_btn2:
-                                if st.button("♻️ Recriar como Admin", use_container_width=True):
-                                    # Remover usuário
-                                    if remover_usuario(usuario_remover):
-                                        # Recriar como admin
-                                        from auth_system import adicionar_usuario
-                                        if adicionar_usuario(usuario_remover, "admin123", is_admin=True):
-                                            # CRÍTICO: Forçar rerun para recarregar lista
-                                            st.success(f"✅ {usuario_remover} recriado como Admin!")
-                                            st.info("🔑 Senha padrão: admin123")
-                                            time.sleep(2)
-                                            st.rerun()
-                                        else:
-                                            st.error("❌ Erro ao recriar usuário")
-                        else:
-                            st.info("Nenhum usuário disponível para remover")
+                                        st.error("❌ Erro ao recriar usuário")
+                    else:
+                        st.info("Nenhum usuário disponível para remover")
                 
-                    # TAB 4: Banco de Dados
-                    with tab4:
-                        st.markdown("#### Gerenciar Banco de Dados")
-                        if st.button("Abrir Painel de BD", use_container_width=True):
-                            st.session_state.active_view = 'admin_bd'
-                            st.rerun()
+                # TAB 4: Banco de Dados
+                with tab4:
+                    st.markdown("#### Gerenciar Banco de Dados")
+                    if st.button("Abrir Painel de BD", use_container_width=True):
+                        st.session_state.active_view = 'admin_bd'
+                        st.rerun()
     
-        # ==================== PAINEL ADMIN BD ====================
-        elif st.session_state.active_view == "admin_bd":
-            mostrar_painel_admin_bd()
+    # ==================== PAINEL ADMIN BD ====================
+    elif st.session_state.active_view == "admin_bd":
+        mostrar_painel_admin_bd()
 
-    # Coluna lateral (Disponibilidade)
-    with col_disponibilidade:
-        # Pequeno espaço para alinhar com o topo do card do usuário
-        st.markdown("<div style='height: 0.5rem;'></div>", unsafe_allow_html=True)
+# Coluna lateral (Disponibilidade)
+with col_disponibilidade:
+    # Pequeno espaço para alinhar com o topo do card do usuário
+    st.markdown("<div style='height: 0.5rem;'></div>", unsafe_allow_html=True)
     
-        st.header('Status dos(as) Colaboradores(as)')
+    st.header('Status dos(as) Colaboradores(as)')
     
-        # Listas de status
-        ui_lists = {
-            'fila': [],
-            'almoco': [],
-            'saida': [],
-            'ausente': [],
-            'atividade_especifica': [],
-            'indisponivel': []
-        }
+    # Listas de status
+    ui_lists = {
+        'fila': [],
+        'almoco': [],
+        'saida': [],
+        'ausente': [],
+        'atividade_especifica': [],
+        'indisponivel': []
+    }
     
-        # CRÍTICO: Filtrar admins (EXCETO: Em Demanda, Almoço, Saída rápida)
-        for nome in COLABORADORES:
-            eh_admin = is_admin_cached(nome)
-            status = st.session_state.status_texto.get(nome, 'Indisponível')
+    # CRÍTICO: Filtrar admins (EXCETO: Em Demanda, Almoço, Saída rápida)
+    from auth_system import is_usuario_admin
+    
+    for nome in COLABORADORES:
+        eh_admin = is_usuario_admin(nome)
+        status = st.session_state.status_texto.get(nome, 'Indisponível')
         
-            # Admin SÓ aparece se estiver em: Atividade, Almoço ou Saída rápida
-            if eh_admin:
-                pode_mostrar = (
-                    'Atividade:' in status or 
-                    status == 'Almoço' or 
-                    status == 'Saída rápida'
-                )
-                if not pode_mostrar:
-                    continue  # Pula admin em outros status
+        # Admin SÓ aparece se estiver em: Atividade, Almoço ou Saída rápida
+        if eh_admin:
+            pode_mostrar = (
+                'Atividade:' in status or 
+                status == 'Almoço' or 
+                status == 'Saída rápida'
+            )
+            if not pode_mostrar:
+                continue  # Pula admin em outros status
         
-            # A partir daqui: NÃO-ADMINS ou ADMINS nos status permitidos
-            if nome in st.session_state.bastao_queue:
-                ui_lists['fila'].append(nome)
+        # A partir daqui: NÃO-ADMINS ou ADMINS nos status permitidos
+        if nome in st.session_state.bastao_queue:
+            ui_lists['fila'].append(nome)
         
-            if status == '' or status is None:
-                pass
-            elif status == 'Almoço':
-                ui_lists['almoco'].append(nome)
-            elif status == 'Ausente':
+        if status == '' or status is None:
+            pass
+        elif status == 'Almoço':
+            ui_lists['almoco'].append(nome)
+        elif status == 'Ausente':
+            ui_lists['ausente'].append(nome)
+        elif status == 'Saída rápida':
+            ui_lists['saida'].append(nome)
+        elif status == 'Indisponível':
+            # Indisponível vai para AUSENTE
+            if nome not in st.session_state.bastao_queue:
                 ui_lists['ausente'].append(nome)
-            elif status == 'Saída rápida':
-                ui_lists['saida'].append(nome)
-            elif status == 'Indisponível':
-                # Indisponível vai para AUSENTE
-                if nome not in st.session_state.bastao_queue:
-                    ui_lists['ausente'].append(nome)
         
-            if 'Atividade:' in status:
-                match = re.search(r'Atividade: (.*)', status)
-                if match:
-                    desc_atividade = match.group(1).split('|')[0].strip()
+        if 'Atividade:' in status:
+            match = re.search(r'Atividade: (.*)', status)
+            if match:
+                desc_atividade = match.group(1).split('|')[0].strip()
                 
-                    # LIMPEZA GLOBAL (mas mantém [Setor])
-                    desc_limpa = limpar_texto_demanda(desc_atividade)
+                # LIMPEZA GLOBAL (mas mantém [Setor])
+                desc_limpa = limpar_texto_demanda(desc_atividade)
                 
-                    # Se perdeu o [Setor], tentar recuperar
-                    if not desc_limpa.startswith('[') and '[' in desc_atividade:
-                        # Pegar o [Setor] do original
-                        match_setor = re.match(r'\[([^\]]+)\]', desc_atividade)
-                        if match_setor:
-                            desc_limpa = f"[{match_setor.group(1)}] {desc_limpa}"
+                # Se perdeu o [Setor], tentar recuperar
+                if not desc_limpa.startswith('[') and '[' in desc_atividade:
+                    # Pegar o [Setor] do original
+                    match_setor = re.match(r'\[([^\]]+)\]', desc_atividade)
+                    if match_setor:
+                        desc_limpa = f"[{match_setor.group(1)}] {desc_limpa}"
                 
-                    ui_lists['atividade_especifica'].append((nome, desc_limpa))
+                ui_lists['atividade_especifica'].append((nome, desc_limpa))
     
-        # Renderizar fila - SEMPRE MOSTRAR, mesmo vazia
-        st.subheader(f'✅ Na Fila ({len(ui_lists["fila"])})')
-        render_order = [c for c in queue if c in ui_lists["fila"]]
-        if not render_order:
-            # Mostrar mensagem mesmo sem ninguém
-            st.markdown("""
-            <div style='background: #f8f9fa; padding: 0.75rem; border-radius: 8px; text-align: center;'>
-                <span style='color: #6c757d; font-size: 0.9rem;'>📭 Ninguém na fila no momento</span>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            for nome in render_order:
-                col_nome, col_check = st.columns([0.85, 0.15], vertical_alignment="center")
+    # Renderizar fila - SEMPRE MOSTRAR, mesmo vazia
+    st.subheader(f'✅ Na Fila ({len(ui_lists["fila"])})')
+    render_order = [c for c in queue if c in ui_lists["fila"]]
+    if not render_order:
+        # Mostrar mensagem mesmo sem ninguém
+        st.markdown("""
+        <div style='background: #f8f9fa; padding: 0.75rem; border-radius: 8px; text-align: center;'>
+            <span style='color: #6c757d; font-size: 0.9rem;'>📭 Ninguém na fila no momento</span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        for nome in render_order:
+            col_nome, col_check = st.columns([0.85, 0.15], vertical_alignment="center")
             
-                # CRÍTICO: Checkbox apenas para ADMINS
-                if st.session_state.get('is_admin', False):
-                    key = f'chk_fila_{nome}'
-                    is_checked = st.session_state.get(f'check_{nome}', True)
-                    col_check.checkbox(' ', key=key, value=is_checked, on_change=toggle_queue, args=(nome,), label_visibility='collapsed')
-                else:
-                    # Colaborador comum não vê checkbox
-                    col_check.markdown("")
-            
-                status_atual = st.session_state.status_texto.get(nome, '')
-                extra_info = ""
-                if "Atividade" in status_atual:
-                    extra_info += " 📋"
-            
-                if nome == responsavel:
-                    display = f'<span style="background-color: #FFD700; color: #000; padding: 2px 6px; border-radius: 5px; font-weight: bold;">{nome}</span>'
-                else:
-                    display = f'**{nome}**{extra_info} :blue-background[Aguardando]'
-                col_nome.markdown(display, unsafe_allow_html=True)
-    
-        # Botão Resetar Bastão (APENAS ADMIN) - Move fila para ausente
-        if st.session_state.get('is_admin', False):
-            st.markdown("")
-        
-            # Aparece apenas se tem pessoas na fila
-            if len(ui_lists["fila"]) > 0:
-                if st.button("🔄 Resetar Fila", use_container_width=True, type="secondary", help=f"Move as {len(ui_lists['fila'])} pessoa(s) da fila para Ausente"):
-                    resetar_bastao()
+            # CRÍTICO: Checkbox apenas para ADMINS
+            if st.session_state.get('is_admin', False):
+                key = f'chk_fila_{nome}'
+                is_checked = st.session_state.get(f'check_{nome}', True)
+                col_check.checkbox(' ', key=key, value=is_checked, on_change=toggle_queue, args=(nome,), label_visibility='collapsed')
             else:
-                st.caption("💡 Botão 'Resetar Fila' aparece quando há pessoas na fila")
+                # Colaborador comum não vê checkbox
+                col_check.markdown("")
+            
+            status_atual = st.session_state.status_texto.get(nome, '')
+            extra_info = ""
+            if "Atividade" in status_atual:
+                extra_info += " 📋"
+            
+            if nome == responsavel:
+                display = f'<span style="background-color: #FFD700; color: #000; padding: 2px 6px; border-radius: 5px; font-weight: bold;">{nome}</span>'
+            else:
+                display = f'**{nome}**{extra_info} :blue-background[Aguardando]'
+            col_nome.markdown(display, unsafe_allow_html=True)
     
+    # Botão Resetar Bastão (APENAS ADMIN) - Move fila para ausente
+    if st.session_state.get('is_admin', False):
+        st.markdown("")
+        
+        # Aparece apenas se tem pessoas na fila
+        if len(ui_lists["fila"]) > 0:
+            if st.button("🔄 Resetar Fila", use_container_width=True, type="secondary", help=f"Move as {len(ui_lists['fila'])} pessoa(s) da fila para Ausente"):
+                resetar_bastao()
+        else:
+            st.caption("💡 Botão 'Resetar Fila' aparece quando há pessoas na fila")
+    
+    st.markdown('---')
+    
+    # Função auxiliar para renderizar seções
+    def render_section_detalhada(title, icon, lista_tuplas, tag_color, keyword_removal):
+        st.subheader(f'{icon} {title} ({len(lista_tuplas)})')
+        
+        # Mostrar colaboradores que já pegaram demandas
+        if not lista_tuplas:
+            st.caption(f'_Nenhum colaborador em {title.lower()} no momento._')
+        else:
+            for nome, desc in sorted(lista_tuplas, key=lambda x: x[0]):
+                # Container principal para cada colaborador
+                col_nome, col_btn = st.columns([0.7, 0.3], vertical_alignment="top")
+                
+                with col_nome:
+                    st.markdown(f'**{nome}**', unsafe_allow_html=True)
+                    
+                    # BUSCAR TODOS OS CHAMADOS DO COLABORADOR
+                    status_atual = st.session_state.status_texto.get(nome, '')
+                    
+                    # Extrair todos os chamados (podem ter múltiplos separados por | ou múltiplas atividades)
+                    chamados_lista = []
+                    
+                    # Tentar extrair chamados do status
+                    if 'Atividade:' in status_atual:
+                        # Pegar tudo depois de "Atividade:"
+                        atividades_raw = status_atual.split('Atividade:', 1)[1].strip()
+                        
+                        # Separar por | ou por nova linha se houver
+                        partes = re.split(r'\||;|\n', atividades_raw)
+                        
+                        for parte in partes:
+                            parte_limpa = limpar_texto_demanda(parte.strip())
+                            if parte_limpa and len(parte_limpa) > 3:  # Evitar strings vazias
+                                chamados_lista.append(parte_limpa)
+                    
+                    # Se não encontrou chamados, usar a descrição original
+                    if not chamados_lista:
+                        chamados_lista = [desc]
+                    
+                    # CORREÇÃO: MOSTRAR TODOS OS CHAMADOS (não limitar a 5)
+                    chamados_exibir = chamados_lista  # ← Removido [:5]
+                    total_chamados = len(chamados_lista)
+                    
+                    # Exibir cada chamado em uma linha
+                    for idx, chamado in enumerate(chamados_exibir, 1):
+                        # Adicionar número se múltiplos chamados
+                        if len(chamados_exibir) > 1:
+                            st.caption(f"**{idx}.** {chamado}")
+                        else:
+                            st.caption(chamado)
+                    
+                    # REMOVIDO: Indicador "e mais X chamados" (não é mais necessário)
+                
+                # PROBLEMA 4: Mostrar horário de início E tempo decorrido
+                with col_nome:
+                    if nome in st.session_state.get('demanda_start_times', {}):
+                        start_time = st.session_state.demanda_start_times[nome]
+                        if isinstance(start_time, str):
+                            start_time = datetime.fromisoformat(start_time)
+                        
+                        # Horário de início
+                        horario_inicio = start_time.strftime('%H:%M')
+                        
+                        # Tempo decorrido
+                        elapsed = now_brasilia() - start_time
+                        elapsed_mins = int(elapsed.total_seconds() / 60)
+                        
+                        st.caption(f"🕐 Início: {horario_inicio} | ⏱️ {elapsed_mins} min")
+                
+                # Botão Finalizar (ITEM 1) - apenas próprio colaborador ou admin
+                with col_btn:
+                    usuario_logado = st.session_state.usuario_logado
+                    is_admin = st.session_state.get('is_admin', False)
+                    
+                    if nome == usuario_logado or is_admin:
+                        if st.button("✅", key=f"fim_{nome}_{title}", help="Finalizar demanda"):
+                            # Extrair todas as demandas do colaborador
+                            status_atual = st.session_state.status_texto.get(nome, '')
+                            chamados_lista = []
+                            
+                            if 'Atividade:' in status_atual:
+                                atividades_raw = status_atual.split('Atividade:', 1)[1].strip()
+                                partes = re.split(r'\||;|\n', atividades_raw)
+                                
+                                for parte in partes:
+                                    parte_limpa = limpar_texto_demanda(parte.strip())
+                                    if parte_limpa and len(parte_limpa) > 3:
+                                        chamados_lista.append(parte_limpa)
+                            
+                            # Se tem apenas 1 demanda, finalizar direto
+                            if len(chamados_lista) <= 1:
+                                finalizar_demanda(nome)
+                            else:
+                                # Tem múltiplas - salvar lista e abrir modal
+                                st.session_state[f'finalizar_modal_{nome}'] = True
+                                st.session_state[f'demandas_lista_{nome}'] = chamados_lista
+                                st.rerun()
+                    else:
+                        st.markdown("")  # Não mostra botão para outros
+                
+                # Modal de escolha (FORA do col_btn para não quebrar layout)
+                if st.session_state.get(f'finalizar_modal_{nome}', False):
+                    st.markdown("---")
+                    st.markdown("**🎯 Escolha qual demanda finalizar:**")
+                    
+                    chamados_lista = st.session_state.get(f'demandas_lista_{nome}', [])
+                    opcoes = ["✅ Todas as demandas"] + [f"{i+1}. {c[:40]}..." if len(c) > 40 else f"{i+1}. {c}" for i, c in enumerate(chamados_lista)]
+                    
+                    escolha = st.radio("", opcoes, key=f"radio_{nome}", label_visibility="collapsed")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Confirmar", key=f"conf_{nome}", type="primary", use_container_width=True):
+                            if escolha == "✅ Todas as demandas":
+                                # Finalizar todas
+                                finalizar_demanda(nome)
+                            else:
+                                # Finalizar apenas a selecionada
+                                idx = int(escolha.split(".")[0]) - 1
+                                demanda_finalizada = chamados_lista[idx]
+                                
+                                # Remover a demanda finalizada do status
+                                chamados_lista.pop(idx)
+                                
+                                if len(chamados_lista) == 0:
+                                    # Era a última - limpar tudo
+                                    finalizar_demanda(nome)
+                                else:
+                                    # Ainda tem outras - reconstruir status
+                                    novo_status = "Atividade: " + " | ".join(chamados_lista)
+                                    st.session_state.status_texto[nome] = novo_status
+                                    
+                                    # Log da demanda finalizada
+                                    if nome in st.session_state.demanda_start_times:
+                                        start_time = st.session_state.demanda_start_times[nome]
+                                        end_time = now_brasilia()
+                                        duration = end_time - start_time
+                                        
+                                        log_entry = {
+                                            'tipo': 'demanda',
+                                            'colaborador': nome,
+                                            'atividade': f"Atividade: {demanda_finalizada}",
+                                            'inicio': start_time.isoformat(),
+                                            'fim': end_time.isoformat(),
+                                            'duracao_minutos': duration.total_seconds() / 60,
+                                            'timestamp': now_brasilia()
+                                        }
+                                        st.session_state.demanda_logs.append(log_entry)
+                                        st.session_state.daily_logs.append(log_entry)
+                                    
+                                    save_state()
+                                    st.success(f"✅ Demanda finalizada!")
+                                    st.session_state[f'finalizar_modal_{nome}'] = False
+                                    del st.session_state[f'demandas_lista_{nome}']
+                                    time.sleep(0.5)
+                                    st.rerun()
+                            
+                            st.session_state[f'finalizar_modal_{nome}'] = False
+                            if f'demandas_lista_{nome}' in st.session_state:
+                                del st.session_state[f'demandas_lista_{nome}']
+                    with col2:
+                        if st.button("❌ Cancelar", key=f"canc_{nome}", use_container_width=True):
+                            st.session_state[f'finalizar_modal_{nome}'] = False
+                            if f'demandas_lista_{nome}' in st.session_state:
+                                del st.session_state[f'demandas_lista_{nome}']
+                            st.rerun()
+                    st.markdown("---")
         st.markdown('---')
     
-        # Função auxiliar para renderizar seções
-        def render_section_detalhada(title, icon, lista_tuplas, tag_color, keyword_removal):
-            st.subheader(f'{icon} {title} ({len(lista_tuplas)})')
-        
-            # Mostrar colaboradores que já pegaram demandas
-            if not lista_tuplas:
-                st.caption(f'_Nenhum colaborador em {title.lower()} no momento._')
-            else:
-                for nome, desc in sorted(lista_tuplas, key=lambda x: x[0]):
-                    # Container principal para cada colaborador
-                    col_nome, col_btn = st.columns([0.7, 0.3], vertical_alignment="top")
+    def render_section_simples(title, icon, names, tag_color):
+        st.subheader(f'{icon} {title} ({len(names)})')
+        # CORREÇÃO: SEMPRE mostrar seção, mesmo vazia
+        # REMOVIDO: if not names -> Sempre mostra a lista, mesmo que vazia
+        if not names:
+            # Mensagem discreta quando vazio (não "Ninguém...")
+            st.caption(f'_Nenhum colaborador em {title.lower()} no momento._')
+        else:
+            for nome in sorted(names):
+                # CRÍTICO: Verificar se é admin ANTES de mostrar checkbox
+                is_admin = st.session_state.get('is_admin', False)
                 
-                    with col_nome:
-                        st.markdown(f'**{nome}**', unsafe_allow_html=True)
+                if is_admin:
+                    # Admin vê checkbox
+                    col_nome, col_check = st.columns([0.70, 0.30], vertical_alignment="center")
+                else:
+                    # Colaborador não vê checkbox
+                    col_nome = st.container()
                     
-                        # BUSCAR TODOS OS CHAMADOS DO COLABORADOR
-                        status_atual = st.session_state.status_texto.get(nome, '')
-                    
-                        # Extrair todos os chamados (podem ter múltiplos separados por | ou múltiplas atividades)
-                        chamados_lista = []
-                    
-                        # Tentar extrair chamados do status
-                        if 'Atividade:' in status_atual:
-                            # Pegar tudo depois de "Atividade:"
-                            atividades_raw = status_atual.split('Atividade:', 1)[1].strip()
-                        
-                            # Separar por | ou por nova linha se houver
-                            partes = re.split(r'\||;|\n', atividades_raw)
-                        
-                            for parte in partes:
-                                parte_limpa = limpar_texto_demanda(parte.strip())
-                                if parte_limpa and len(parte_limpa) > 3:  # Evitar strings vazias
-                                    chamados_lista.append(parte_limpa)
-                    
-                        # Se não encontrou chamados, usar a descrição original
-                        if not chamados_lista:
-                            chamados_lista = [desc]
-                    
-                        # CORREÇÃO: MOSTRAR TODOS OS CHAMADOS (não limitar a 5)
-                        chamados_exibir = chamados_lista  # ← Removido [:5]
-                        total_chamados = len(chamados_lista)
-                    
-                        # Exibir cada chamado em uma linha
-                        for idx, chamado in enumerate(chamados_exibir, 1):
-                            # Adicionar número se múltiplos chamados
-                            if len(chamados_exibir) > 1:
-                                st.caption(f"**{idx}.** {chamado}")
-                            else:
-                                st.caption(chamado)
-                    
-                        # REMOVIDO: Indicador "e mais X chamados" (não é mais necessário)
+                key_dummy = f'chk_simples_{title}_{nome}'
                 
-                    # PROBLEMA 4: Mostrar horário de início E tempo decorrido
-                    with col_nome:
-                        if nome in st.session_state.get('demanda_start_times', {}):
-                            start_time = st.session_state.demanda_start_times[nome]
-                            if isinstance(start_time, str):
-                                start_time = datetime.fromisoformat(start_time)
-                        
-                            # Horário de início
-                            horario_inicio = start_time.strftime('%H:%M')
-                        
-                            # Tempo decorrido
-                            elapsed = now_brasilia() - start_time
-                            elapsed_mins = int(elapsed.total_seconds() / 60)
-                        
-                            st.caption(f"🕐 Início: {horario_inicio} | ⏱️ {elapsed_mins} min")
+                col_nome.markdown(f'**{nome}**')
                 
-                    # Botão Finalizar (ITEM 1) - apenas próprio colaborador ou admin
-                    with col_btn:
-                        usuario_logado = st.session_state.usuario_logado
-                        is_admin = st.session_state.get('is_admin', False)
+                # Mostrar horário de saída E retorno para ALMOÇO (1 hora)
+                if title == 'Almoço' and nome in st.session_state.get('almoco_times', {}):
+                    saida_time = st.session_state.almoco_times[nome]
+                    if isinstance(saida_time, str):
+                        saida_time = datetime.fromisoformat(saida_time)
                     
-                        if nome == usuario_logado or is_admin:
-                            if st.button("✅", key=f"fim_{nome}_{title}", help="Finalizar demanda"):
-                                # Extrair todas as demandas do colaborador
-                                status_atual = st.session_state.status_texto.get(nome, '')
-                                chamados_lista = []
-                            
-                                if 'Atividade:' in status_atual:
-                                    atividades_raw = status_atual.split('Atividade:', 1)[1].strip()
-                                    partes = re.split(r'\||;|\n', atividades_raw)
-                                
-                                    for parte in partes:
-                                        parte_limpa = limpar_texto_demanda(parte.strip())
-                                        if parte_limpa and len(parte_limpa) > 3:
-                                            chamados_lista.append(parte_limpa)
-                            
-                                # Se tem apenas 1 demanda, finalizar direto
-                                if len(chamados_lista) <= 1:
-                                    finalizar_demanda(nome)
-                                else:
-                                    # Tem múltiplas - salvar lista e abrir modal
-                                    st.session_state[f'finalizar_modal_{nome}'] = True
-                                    st.session_state[f'demandas_lista_{nome}'] = chamados_lista
-                                    st.rerun()
-                        else:
-                            st.markdown("")  # Não mostra botão para outros
+                    # Calcular hora de retorno (1 hora depois)
+                    retorno_time = saida_time + timedelta(hours=1)
+                    
+                    # Exibir na mesma linha usando markdown
+                    col_nome.markdown(
+                        f"<small>🕐 Saiu: {saida_time.strftime('%H:%M')} | ⏰ Retorna: {retorno_time.strftime('%H:%M')}</small>",
+                        unsafe_allow_html=True
+                    )
                 
-                    # Modal de escolha (FORA do col_btn para não quebrar layout)
-                    if st.session_state.get(f'finalizar_modal_{nome}', False):
-                        st.markdown("---")
-                        st.markdown("**🎯 Escolha qual demanda finalizar:**")
+                # Mostrar APENAS horário de saída para SAÍDA RÁPIDA (sem retorno)
+                if title == 'Saída rápida' and nome in st.session_state.get('saida_rapida_times', {}):
+                    saida_time = st.session_state.saida_rapida_times[nome]
+                    if isinstance(saida_time, str):
+                        saida_time = datetime.fromisoformat(saida_time)
                     
-                        chamados_lista = st.session_state.get(f'demandas_lista_{nome}', [])
-                        opcoes = ["✅ Todas as demandas"] + [f"{i+1}. {c[:40]}..." if len(c) > 40 else f"{i+1}. {c}" for i, c in enumerate(chamados_lista)]
-                    
-                        escolha = st.radio("", opcoes, key=f"radio_{nome}", label_visibility="collapsed")
-                    
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button("✅ Confirmar", key=f"conf_{nome}", type="primary", use_container_width=True):
-                                if escolha == "✅ Todas as demandas":
-                                    # Finalizar todas
-                                    finalizar_demanda(nome)
-                                else:
-                                    # Finalizar apenas a selecionada
-                                    idx = int(escolha.split(".")[0]) - 1
-                                    demanda_finalizada = chamados_lista[idx]
-                                
-                                    # Remover a demanda finalizada do status
-                                    chamados_lista.pop(idx)
-                                
-                                    if len(chamados_lista) == 0:
-                                        # Era a última - limpar tudo
-                                        finalizar_demanda(nome)
-                                    else:
-                                        # Ainda tem outras - reconstruir status
-                                        novo_status = "Atividade: " + " | ".join(chamados_lista)
-                                        st.session_state.status_texto[nome] = novo_status
-                                    
-                                        # Log da demanda finalizada
-                                        if nome in st.session_state.demanda_start_times:
-                                            start_time = st.session_state.demanda_start_times[nome]
-                                            end_time = now_brasilia()
-                                            duration = end_time - start_time
-                                        
-                                            log_entry = {
-                                                'tipo': 'demanda',
-                                                'colaborador': nome,
-                                                'atividade': f"Atividade: {demanda_finalizada}",
-                                                'inicio': start_time.isoformat(),
-                                                'fim': end_time.isoformat(),
-                                                'duracao_minutos': duration.total_seconds() / 60,
-                                                'timestamp': now_brasilia()
-                                            }
-                                            st.session_state.demanda_logs.append(log_entry)
-                                            st.session_state.daily_logs.append(log_entry)
-                                    
-                                        save_state()
-                                        st.success(f"✅ Demanda finalizada!")
-                                        st.session_state[f'finalizar_modal_{nome}'] = False
-                                        del st.session_state[f'demandas_lista_{nome}']
-                                        time.sleep(0.5)
-                                        st.rerun()
-                            
-                                st.session_state[f'finalizar_modal_{nome}'] = False
-                                if f'demandas_lista_{nome}' in st.session_state:
-                                    del st.session_state[f'demandas_lista_{nome}']
-                        with col2:
-                            if st.button("❌ Cancelar", key=f"canc_{nome}", use_container_width=True):
-                                st.session_state[f'finalizar_modal_{nome}'] = False
-                                if f'demandas_lista_{nome}' in st.session_state:
-                                    del st.session_state[f'demandas_lista_{nome}']
-                                st.rerun()
-                        st.markdown("---")
-            st.markdown('---')
-    
-        def render_section_simples(title, icon, names, tag_color):
-            st.subheader(f'{icon} {title} ({len(names)})')
-            # CORREÇÃO: SEMPRE mostrar seção, mesmo vazia
-            # REMOVIDO: if not names -> Sempre mostra a lista, mesmo que vazia
-            if not names:
-                # Mensagem discreta quando vazio (não "Ninguém...")
-                st.caption(f'_Nenhum colaborador em {title.lower()} no momento._')
-            else:
-                for nome in sorted(names):
-                    # CRÍTICO: Verificar se é admin ANTES de mostrar checkbox
-                    is_admin = st.session_state.get('is_admin', False)
+                    # Exibir APENAS hora de saída (SEM retorno)
+                    col_nome.markdown(
+                        f"<small>🕐 Saiu: {saida_time.strftime('%H:%M')}</small>",
+                        unsafe_allow_html=True
+                    )
                 
-                    if is_admin:
-                        # Admin vê checkbox
-                        col_nome, col_check = st.columns([0.70, 0.30], vertical_alignment="center")
-                    else:
-                        # Colaborador não vê checkbox
-                        col_nome = st.container()
+                # Mostrar horário de LOGOUT para AUSENTE
+                if title == 'Ausente' and nome in st.session_state.get('logout_times', {}):
+                    logout_time = st.session_state.logout_times[nome]
+                    if isinstance(logout_time, str):
+                        logout_time = datetime.fromisoformat(logout_time)
                     
-                    key_dummy = f'chk_simples_{title}_{nome}'
+                    # Exibir hora e data do logout
+                    col_nome.markdown(
+                        f"<small>🚪 Saiu às {logout_time.strftime('%H:%M')} - {logout_time.strftime('%d/%m/%Y')}</small>",
+                        unsafe_allow_html=True
+                    )
                 
-                    col_nome.markdown(f'**{nome}**')
-                
-                    # Mostrar horário de saída E retorno para ALMOÇO (1 hora)
-                    if title == 'Almoço' and nome in st.session_state.get('almoco_times', {}):
-                        saida_time = st.session_state.almoco_times[nome]
-                        if isinstance(saida_time, str):
-                            saida_time = datetime.fromisoformat(saida_time)
-                    
-                        # Calcular hora de retorno (1 hora depois)
-                        retorno_time = saida_time + timedelta(hours=1)
-                    
-                        # Exibir na mesma linha usando markdown
-                        col_nome.markdown(
-                            f"<small>🕐 Saiu: {saida_time.strftime('%H:%M')} | ⏰ Retorna: {retorno_time.strftime('%H:%M')}</small>",
-                            unsafe_allow_html=True
-                        )
-                
-                    # Mostrar APENAS horário de saída para SAÍDA RÁPIDA (sem retorno)
-                    if title == 'Saída rápida' and nome in st.session_state.get('saida_rapida_times', {}):
-                        saida_time = st.session_state.saida_rapida_times[nome]
-                        if isinstance(saida_time, str):
-                            saida_time = datetime.fromisoformat(saida_time)
-                    
-                        # Exibir APENAS hora de saída (SEM retorno)
-                        col_nome.markdown(
-                            f"<small>🕐 Saiu: {saida_time.strftime('%H:%M')}</small>",
-                            unsafe_allow_html=True
-                        )
-                
-                    # Mostrar horário de LOGOUT para AUSENTE
-                    if title == 'Ausente' and nome in st.session_state.get('logout_times', {}):
-                        logout_time = st.session_state.logout_times[nome]
-                        if isinstance(logout_time, str):
-                            logout_time = datetime.fromisoformat(logout_time)
-                    
-                        # Exibir hora e data do logout
-                        col_nome.markdown(
-                            f"<small>🚪 Saiu às {logout_time.strftime('%H:%M')} - {logout_time.strftime('%d/%m/%Y')}</small>",
-                            unsafe_allow_html=True
-                        )
-                
-                    # Checkbox APENAS para admin
-                    if is_admin:
-                        col_check.checkbox(nome, key=key_dummy, 
-                                         value=(False if title == 'Indisponível' else True),
-                                         on_change=(enter_from_indisponivel if title == 'Indisponível' 
-                                                  else leave_specific_status),
-                                         args=((nome,) if title == 'Indisponível' else (nome, title)),
-                                         label_visibility='hidden')
-            st.markdown('---')
+                # Checkbox APENAS para admin
+                if is_admin:
+                    col_check.checkbox('', key=key_dummy, 
+                                     value=(False if title == 'Indisponível' else True),
+                                     on_change=(enter_from_indisponivel if title == 'Indisponível' 
+                                              else leave_specific_status),
+                                     args=((nome,) if title == 'Indisponível' else (nome, title)),
+                                     label_visibility='collapsed')
+        st.markdown('---')
     
     
-        render_section_detalhada('Em Demanda', '📋', ui_lists['atividade_especifica'], 'orange', 'Atividade')
-        render_section_simples('Almoço', '🍽️', ui_lists['almoco'], 'red')
-        render_section_simples('Saída rápida', '🚶', ui_lists['saida'], 'red')
-        render_section_simples('Ausente', '👤', ui_lists['ausente'], 'violet')
+    render_section_detalhada('Em Demanda', '📋', ui_lists['atividade_especifica'], 'orange', 'Atividade')
+    render_section_simples('Almoço', '🍽️', ui_lists['almoco'], 'red')
+    render_section_simples('Saída rápida', '🚶', ui_lists['saida'], 'red')
+    render_section_simples('Ausente', '👤', ui_lists['ausente'], 'violet')
 
 
-    # Footer
-    st.markdown("---")
-    st.caption("Sistema de Controle de Bastão - Informática 2026 - Versão Local (Sem Integrações Externas)")
-
-render_app_principal()
+# Footer
+st.markdown("---")
+st.caption("Sistema de Controle de Bastão - Informática 2026 - Versão Local (Sem Integrações Externas)")
